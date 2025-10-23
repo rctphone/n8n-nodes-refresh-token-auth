@@ -1,0 +1,78 @@
+{
+	"name": "n8n-nodes-refresh-token-auth",
+	"version": "1.0.0",
+	"description": "n8n community node with automatic refresh token support",
+	"keywords": [
+		"n8n-community-node-package",
+		"n8n",
+		"refresh-token",
+		"authentication",
+		"bearer-token"
+	],
+	"license": "MIT",
+	"homepage": "https://github.com/rctphone/n8n-nodes-refresh-token-auth",
+	"author": {
+		"name": "rctphone",
+		"email": "rctphone@gmail.com"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/rctphone/n8n-nodes-refresh-token-auth.git"
+	},
+	"engines": {
+		"node": ">=18.10",
+		"pnpm": ">=9.1"
+	},
+	"packageManager": "pnpm@9.1.4",
+	"main": "dist/index.js",
+	"scripts": {
+		"build": "rm -rf dist && tsc && gulp build:icons",
+		"format": "prettier nodes credentials --write",
+		"lint": "eslint nodes credentials package.json",
+		"lintfix": "eslint nodes credentials package.json --fix",
+		"prepublishOnly": "npm run build && npm run lint -c .eslintrc.prepublish.js nodes credentials package.json",
+		"dev": "tsc --watch",
+		"test": "jest",
+		"test:watch": "jest --watch",
+		"test:coverage": "jest --coverage",
+		"test:integration": "jest --testMatch '**/*.integration.test.ts' --testPathIgnorePatterns=''"
+	},
+	"files": [
+		"dist/**/*.js",
+		"dist/**/*.d.ts",
+		"dist/**/*.js.map",
+		"!dist/**/*.test.js",
+		"!dist/**/*.test.d.ts",
+		"!dist/**/*.test.js.map",
+		"!dist/**/*.tsbuildinfo",
+		"dist/package.json",
+		"LICENSE",
+		"README.md"
+	],
+	"n8n": {
+		"n8nNodesApiVersion": 1,
+		"credentials": [
+			"dist/credentials/RefreshTokenAuth.credentials.js"
+		],
+		"nodes": [
+			"dist/nodes/RefreshToken/RefreshToken.node.js"
+		]
+	},
+	"devDependencies": {
+		"@types/jest": "^29.5.14",
+		"@types/node": "^22.13.10",
+		"dotenv": "^16.4.7",
+		"jest": "^29.7.0",
+		"n8n-workflow": "^1.70.0",
+		"ts-jest": "^29.2.5",
+		"typescript": "^5.8.2",
+		"@typescript-eslint/parser": "~8.46.2",
+		"eslint": "8",
+		"eslint-plugin-n8n-nodes-base": "^1.16.4",
+		"gulp": "^5.0.0",
+		"prettier": "^3.5.3"
+	},
+	"peerDependencies": {
+		"n8n-workflow": "*"
+	}
+}

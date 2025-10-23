@@ -1,0 +1,24 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.vscode/
+*.tsbuildinfo
+
+# Example files (not needed in repo)
+samples/
+docs/
+test/
+.cursorrules
+WARP.md
+
+# Test files (not needed in repo)
+**/*.test.ts
+**/*.spec.ts
+**/*.integration.test.ts
+jest.config.js
+coverage/
+TESTING.md
+INTEGRATION_TESTING.md
+INTEGRATION_QUICKSTART.md
