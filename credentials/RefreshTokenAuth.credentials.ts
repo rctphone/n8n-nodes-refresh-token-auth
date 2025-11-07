@@ -209,19 +209,26 @@ export class RefreshTokenAuth implements ICredentialType {
 		// Check if refresh token field name exists in body config
 		const refreshTokenInBody =
 			auth.body && actualRefreshTokenFieldName in (auth.body as IDataObject);
+		// Check if refresh token field name exists in qs config
+		const refreshTokenInQs = auth.qs && actualRefreshTokenFieldName in (auth.qs as IDataObject);
 		// Check if access token field name exists in headers config
 		const accessTokenInHeader =
 			auth.headers && actualAccessTokenFieldName in (auth.headers as IDataObject);
 		// Check if access token field name exists in body config
 		const accessTokenInBody = auth.body && actualAccessTokenFieldName in (auth.body as IDataObject);
+		// Check if access token field name exists in qs config
+		const accessTokenInQs = auth.qs && actualAccessTokenFieldName in (auth.qs as IDataObject);
 
-		// Set refresh token: if field name is in headers config -> header, if in body config -> body, else default to body
+		// Set refresh token: if field name is in headers config -> header, if in body config -> body, if in qs config -> qs, else default to body
 		if (refreshTokenInHeader) {
 			// Set refresh token in header
 			requestOptions.headers![actualRefreshTokenFieldName] = refreshToken;
 		} else if (refreshTokenInBody) {
 			// Set refresh token in body (already in bodyParams from config, just update value)
 			(requestOptions.body! as IDataObject)[actualRefreshTokenFieldName] = refreshToken;
+		} else if (refreshTokenInQs) {
+			// Set refresh token in qs (already in qs from config, just update value)
+			(requestOptions.qs! as IDataObject)[actualRefreshTokenFieldName] = refreshToken;
 		} else {
 			// Default: add refresh token to body
 			if (!requestOptions.body) {
@@ -230,13 +237,16 @@ export class RefreshTokenAuth implements ICredentialType {
 			(requestOptions.body as IDataObject)[actualRefreshTokenFieldName] = refreshToken;
 		}
 
-		// Set access token: if field name is in headers config -> header, if in body config -> body, else default to body
+		// Set access token: if field name is in headers config -> header, if in body config -> body, if in qs config -> qs
 		if (accessTokenInHeader) {
 			// Set access token in header
 			requestOptions.headers![actualAccessTokenFieldName] = accessToken;
 		} else if (accessTokenInBody) {
 			// Set access token in body (already in bodyParams from config, just update value)
 			(requestOptions.body! as IDataObject)[actualAccessTokenFieldName] = accessToken;
+		} else if (accessTokenInQs) {
+			// Set access token in qs (already in qs from config, just update value)
+			(requestOptions.qs! as IDataObject)[actualAccessTokenFieldName] = accessToken;
 		}
 
 		// Determine if we should use form-urlencoded or JSON
