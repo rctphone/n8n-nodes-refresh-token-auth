@@ -34,6 +34,7 @@ This community node provides a comprehensive solution for token-based authentica
 - ⚙️ **Customizable Field Names** - Configure field names for your specific API
 - 🎯 **Token Testing** - Built-in credential testing to verify token validity
 - 🔧 **Flexible Configuration** - Support for various token refresh mechanisms
+- 📝 **Custom Request Configuration** - Configure custom headers, body, and query string parameters for refresh requests
 
 ---
 
@@ -124,9 +125,38 @@ Click on **Advanced Options** to customize the authentication behavior:
 |--------|---------|-------------|
 | **Access Token Field Name** | `access_token` | Field name in refresh response for new access token |
 | **Refresh Token Field Name** | `refresh_token` | Field name in refresh response for new refresh token |
-| **Refresh Request Body Field Name** | `refresh_token` | Field name when sending refresh token in request |
 | **Authorization Header Prefix** | `Bearer` | Prefix for Authorization header (Bearer, Token, etc.) |
-| **Send Refresh Token As** | `Body` | Where to send refresh token (Body or Header) |
+| **Refresh Request Configuration** | - | JSON configuration for custom headers, body, and query string parameters in refresh requests |
+
+### Refresh Request Configuration
+
+The **Refresh Request Configuration** field allows you to customize the refresh token request with:
+- **Custom Headers**: Add any headers required by your API (e.g., `User-Agent`, `X-API-Key`)
+- **Custom Body Parameters**: Include additional body parameters (e.g., `grant_type`, `client_id`, `client_secret`)
+- **Query String Parameters**: Add query parameters to the refresh URL
+
+The refresh token location (header or body) is automatically determined based on whether the refresh token field name appears in the `headers` or `body` section of the configuration.
+
+**Example Configuration:**
+```json
+{
+  "headers": {
+    "User-Agent": "MyApp/1.0",
+    "X-API-Key": "your-api-key"
+  },
+  "body": {
+    "grant_type": "refresh_token",
+    "refresh_token": "refresh token here",
+    "client_id": "client_id_here",
+    "client_secret": "client_secret_here"
+  },
+  "qs": {
+    "version": "v1"
+  }
+}
+```
+
+**Note**: The actual refresh token value will be automatically inserted based on the `Refresh Token Field Name` setting. If the field name appears in `headers`, the token will be sent in headers; if it appears in `body`, it will be sent in the body. If neither is specified, it defaults to the body.
 
 ---
 
@@ -230,9 +260,45 @@ Test URL: https://custom-api.com/user/info
 Advanced Options:
 - Access Token Field Name: token
 - Refresh Token Field Name: refreshToken
-- Refresh Request Body Field Name: refreshToken
 - Authorization Header Prefix: Token
-- Send Refresh Token As: Body
+- Refresh Request Configuration:
+  {
+    "body": {
+      "grant_type": "refresh_token",
+      "refreshToken": "refresh token here",
+      "client_id": "your_client_id"
+    }
+  }
+```
+
+#### Example 3: API with Custom Headers and Query Parameters
+
+```
+Access Token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Refresh Token: refresh_abc123xyz
+Refresh URL: https://api.example.com/v1/auth/refresh
+Test URL: https://api.example.com/v1/user/profile
+
+Advanced Options:
+- Access Token Field Name: access_token
+- Refresh Token Field Name: refresh_token
+- Authorization Header Prefix: Bearer
+- Refresh Request Configuration:
+  {
+    "headers": {
+      "User-Agent": "MyApp/2.0",
+      "X-API-Version": "v1"
+    },
+    "body": {
+      "grant_type": "refresh_token",
+      "refresh_token": "refresh token here",
+      "client_id": "client_id_here",
+      "client_secret": "client_secret_here"
+    },
+    "qs": {
+      "format": "json"
+    }
+  }
 ```
 
 ---
@@ -244,26 +310,85 @@ Advanced Options:
 If your API requires a specific format for refresh requests, you can customize:
 
 1. **Field Names**: Adjust to match your API's expected field names
-2. **Request Location**: Choose between sending refresh token in body or header
+2. **Request Location**: Automatically determined by refresh request configuration (header or body)
 3. **Header Prefix**: Change "Bearer" to "Token" or custom prefix
+4. **Custom Headers, Body, and Query Parameters**: Use Refresh Request Configuration JSON
 
-### Example: Custom API Configuration
+### Refresh Request Configuration
+
+The **Refresh Request Configuration** field provides full control over the refresh token request format. This is especially useful for APIs that require:
+- Additional authentication headers (API keys, custom headers)
+- OAuth2-style requests with `grant_type`, `client_id`, `client_secret`
+- Query string parameters
+- Custom request formats
+
+#### How Refresh Token Location is Determined
+
+The system automatically determines where to send the refresh token:
+- If the refresh token field name appears in the `headers` section → token is sent in headers
+- If the refresh token field name appears in the `body` section → token is sent in body
+- If neither is specified → token defaults to body
+
+#### Example: OAuth2 API Configuration
 
 ```javascript
 // Your API expects this refresh request format:
-POST https://api.example.com/v1/auth/refresh
+POST https://api.example.com/oauth/token
 Content-Type: application/json
+User-Agent: MyApp/1.0
 
 {
-  "refreshToken": "your-refresh-token",
+  "grant_type": "refresh_token",
+  "refresh_token": "your-refresh-token",
+  "client_id": "your-client-id",
+  "client_secret": "your-client-secret"
+}
+
+// Configure the credential:
+Refresh Token URL: https://api.example.com/oauth/token
+Access Token Field Name: access_token
+Refresh Token Field Name: refresh_token
+Refresh Request Configuration:
+{
+  "headers": {
+    "User-Agent": "MyApp/1.0"
+  },
+  "body": {
+    "grant_type": "refresh_token",
+    "refresh_token": "refresh token here",
+    "client_id": "your-client-id",
+    "client_secret": "your-client-secret"
+  }
+}
+```
+
+#### Example: API with Refresh Token in Header
+
+```javascript
+// Your API expects refresh token in Authorization header:
+POST https://api.example.com/auth/refresh
+Content-Type: application/json
+Authorization: Bearer your-refresh-token
+X-API-Key: your-api-key
+
+{
   "grant_type": "refresh_token"
 }
 
 // Configure the credential:
-Refresh Token URL: https://api.example.com/v1/auth/refresh
-Refresh Request Body Field Name: refreshToken
-Access Token Field Name: accessToken
-Refresh Token Field Name: refreshToken
+Refresh Token URL: https://api.example.com/auth/refresh
+Access Token Field Name: access_token
+Refresh Token Field Name: refresh_token
+Refresh Request Configuration:
+{
+  "headers": {
+    "refresh_token": "refresh token here",
+    "X-API-Key": "your-api-key"
+  },
+  "body": {
+    "grant_type": "refresh_token"
+  }
+}
 ```
 
 ---
@@ -280,6 +405,8 @@ Refresh Token Field Name: refreshToken
 - Verify the Refresh Token URL is correct
 - Check that your refresh token is still valid
 - Ensure field names match your API's response format
+- Verify the Refresh Request Configuration JSON is valid
+- Check if your API requires specific headers or body parameters in the refresh request
 
 #### 401 Errors Persisting
 
@@ -298,6 +425,19 @@ Refresh Token Field Name: refreshToken
 - Check your API's refresh endpoint response format
 - Update field names in Advanced Options to match response
 - Verify the refresh endpoint returns JSON
+- Ensure the Refresh Request Configuration JSON is properly formatted
+- Check that all required fields (headers, body, qs) are correctly structured
+
+#### Refresh Request Configuration Issues
+
+**Problem**: Refresh request fails or doesn't match API requirements
+
+**Solution**:
+- Validate your Refresh Request Configuration JSON syntax
+- Ensure the refresh token field name appears in either `headers` or `body` section
+- Check that all required API parameters (client_id, client_secret, etc.) are included
+- Verify custom headers match your API's requirements
+- Test the refresh endpoint manually with the same configuration
 
 ### Debug Tips
 
