@@ -17,7 +17,8 @@ export class RefreshTokenAuth implements ICredentialType {
 	// extends = ['oAuth2Api'];
 	// eslint-disable-next-line n8n-nodes-base/cred-class-field-display-name-missing-api
 	displayName = 'Refresh Token Auth';
-	icon: Icon = 'file:refresh-token-auth.svg';
+	genericAuth = true;
+	icon: Icon = 'node:n8n-nodes-base.httpRequest';
 	documentationUrl = 'https://github.com/rctphone/n8n-nodes-refresh-token-auth';
 	properties: INodeProperties[] = [
 		{
