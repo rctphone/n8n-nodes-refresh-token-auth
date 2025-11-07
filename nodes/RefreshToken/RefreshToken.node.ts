@@ -12,6 +12,7 @@ export class RefreshToken implements INodeType {
 		displayName: 'Refresh Token',
 		name: 'refreshToken',
 		group: ['transform'],
+		icon: 'file:refresh-token.svg',
 		version: 1,
 		description: 'Simple pass-through node with RefreshTokenAuth credentials support',
 		defaults: {
