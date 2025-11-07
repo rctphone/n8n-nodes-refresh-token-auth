@@ -61,7 +61,8 @@ export class RefreshTokenAuth implements ICredentialType {
 			displayName: 'Access Token Field Name',
 			name: 'accessTokenFieldName',
 			type: 'string',
-			typeOptions: { password: true },
+			// eslint-disable-next-line n8n-nodes-base/cred-class-field-type-options-password-missing
+			typeOptions: { password: false },
 			default: 'access_token',
 			description: 'Field name in the refresh response that contains the new access token',
 		},
@@ -69,7 +70,8 @@ export class RefreshTokenAuth implements ICredentialType {
 			displayName: 'Refresh Token Field Name',
 			name: 'refreshTokenFieldName',
 			type: 'string',
-			typeOptions: { password: true },
+			// eslint-disable-next-line n8n-nodes-base/cred-class-field-type-options-password-missing
+			typeOptions: { password: false },
 			default: 'refresh_token',
 			description: 'Field name for refresh token (used in both API request and response)',
 		},
