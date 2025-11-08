@@ -78,7 +78,7 @@ function looksLikePreAuth(opts: any, tokenUrlFromCreds?: string) {
 export class RefreshToken implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'RefreshToken (Debug)',
-		name: 'refreshTokenDebug',
+		name: 'refreshToken',
 		icon: 'fa:bug',
 		group: ['transform'],
 		version: 1,
@@ -103,11 +103,11 @@ export class RefreshToken implements INodeType {
 				type: 'options',
 				default: 'GET',
 				options: [
+					{ name: 'DELETE', value: 'DELETE' },
 					{ name: 'GET', value: 'GET' },
+					{ name: 'PATCH', value: 'PATCH' },
 					{ name: 'POST', value: 'POST' },
 					{ name: 'PUT', value: 'PUT' },
-					{ name: 'PATCH', value: 'PATCH' },
-					{ name: 'DELETE', value: 'DELETE' },
 				],
 			},
 			{
@@ -137,7 +137,7 @@ export class RefreshToken implements INodeType {
 				name: 'redact',
 				type: 'boolean',
 				default: false, // show everything by default as requested
-				description: 'If enabled, masks Authorization, tokens, and client_secret',
+				description: 'Whether to mask Authorization, tokens, and client_secret',
 			},
 			{
 				displayName: 'Truncate Bodies To (Chars)',
