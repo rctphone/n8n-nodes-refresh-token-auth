@@ -7,7 +7,7 @@ import type {
 	IDataObject,
 } from 'n8n-workflow';
 
-const CREDENTIALS_NAME = 'RefreshToken'; // <- rename if your credential has a different name
+const CREDENTIALS_NAME = 'RefreshTokenAuth'; // <- rename if your credential has a different name
 
 function safeParse(body: unknown) {
 	if (Buffer.isBuffer(body)) {
@@ -79,7 +79,7 @@ export class RefreshToken implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'RefreshToken (Debug)',
 		name: 'refreshToken',
-		icon: 'fa:bug',
+		icon: 'file:refresh-token.svg',
 		group: ['transform'],
 		version: 1,
 		description:
