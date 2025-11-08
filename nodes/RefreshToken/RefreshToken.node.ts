@@ -4,8 +4,8 @@ import type {
 	INodeType,
 	INodeTypeDescription,
 	IHttpRequestOptions,
+	IDataObject,
 } from 'n8n-workflow';
-import { NodeOperationError } from 'n8n-workflow';
 
 const CREDENTIALS_NAME = 'RefreshToken'; // <- rename if your credential has a different name
 
@@ -167,15 +167,13 @@ export class RefreshToken implements INodeType {
 		for (let i = 0; i < items.length; i++) {
 			const url = this.getNodeParameter('url', i) as string;
 			const method = this.getNodeParameter('method', i) as string;
-			const qs = this.getNodeParameter('qsJson', i, {}) as Record<string, unknown>;
+			const qs = this.getNodeParameter('qsJson', i, {}) as IDataObject;
 			const headersExtra = this.getNodeParameter('headersJson', i, {}) as Record<string, any>;
 			const redact = this.getNodeParameter('redact', i, false) as boolean;
 			const truncate = this.getNodeParameter('truncate', i, 10000) as number;
 
 			const body =
-				method === 'GET'
-					? undefined
-					: (this.getNodeParameter('bodyJson', i, {}) as Record<string, unknown>);
+				method === 'GET' ? undefined : (this.getNodeParameter('bodyJson', i, {}) as IDataObject);
 
 			type Event = {
 				stage: 'request' | 'response';
@@ -220,7 +218,7 @@ export class RefreshToken implements INodeType {
 			};
 
 			const reqOpts: IHttpRequestOptions = {
-				method,
+				method: method as IHttpRequestOptions['method'],
 				url,
 				qs,
 				json: true,
