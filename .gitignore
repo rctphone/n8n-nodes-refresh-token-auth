@@ -3,6 +3,9 @@ dist/
 *.log
 .DS_Store
 .env
+.env.local
+.env.*
+.envrc
 .vscode/
 *.tsbuildinfo
 
@@ -13,6 +16,10 @@ test/
 .cursorrules
 WARP.md
 
+# Local test configurations (exclude all, but keep example files only)
+tests/local/*
+!tests/local/*.example.json
+
 # Test files (not needed in repo)
 **/*.test.ts
 **/*.spec.ts
@@ -20,5 +27,4 @@ WARP.md
 jest.config.js
 coverage/
 TESTING.md
-INTEGRATION_TESTING.md
 INTEGRATION_QUICKSTART.md

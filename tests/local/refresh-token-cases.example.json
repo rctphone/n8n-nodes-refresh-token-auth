@@ -1,0 +1,126 @@
+{
+	"cases": [
+		{
+			"name": "Case A - Always Pre-Auth",
+			"description": "Refresh token before every request (preAuthMode: always)",
+			"preAuthMode": "always",
+			"credentials": {
+				"accessToken": "dummy-access-token-replace-with-real-jwt",
+				"refreshToken": "dummy-refresh-token-replace-with-real",
+				"refreshUrl": "https://api.example.com/oauth/token",
+				"testUrl": "https://api.example.com/users/me",
+				"accessTokenFieldName": "access_token",
+				"refreshTokenFieldName": "refresh_token",
+				"authHeaderPrefix": "Bearer"
+			},
+			"refreshRequest": {
+				"method": "POST",
+				"headers": {
+					"Content-Type": "application/json"
+				},
+				"body": {
+					"grant_type": "refresh_token",
+					"client_id": "YOUR_CLIENT_ID",
+					"client_secret": "YOUR_CLIENT_SECRET",
+					"refresh_token": "{{$credentials.refreshToken}}"
+				}
+			},
+			"mainRequest": {
+				"url": "https://api.example.com/protected/resource",
+				"method": "GET"
+			}
+		},
+		{
+			"name": "Case B - JWT Expiry Check",
+			"description": "Refresh token when JWT exp claim indicates expiration (preAuthMode: onJwtExpiry)",
+			"preAuthMode": "onJwtExpiry",
+			"credentials": {
+				"accessToken": "dummy-jwt-token-replace-with-expired-jwt",
+				"refreshToken": "dummy-refresh-token-replace-with-real",
+				"refreshUrl": "https://auth.example.com/token",
+				"testUrl": "https://api.example.com/users/me",
+				"accessTokenFieldName": "access_token",
+				"refreshTokenFieldName": "refresh_token",
+				"authHeaderPrefix": "Bearer",
+				"jwtExpiryLeewaySeconds": 60
+			},
+			"refreshRequest": {
+				"method": "POST",
+				"headers": {
+					"Content-Type": "application/x-www-form-urlencoded"
+				},
+				"body": {
+					"grant_type": "refresh_token",
+					"client_id": "YOUR_CLIENT_ID",
+					"client_secret": "YOUR_CLIENT_SECRET",
+					"refresh_token": "{{$credentials.refreshToken}}"
+				}
+			},
+			"mainRequest": {
+				"url": "https://api.example.com/protected/resource",
+				"method": "GET"
+			}
+		},
+		{
+			"name": "Case C - On 401 Error",
+			"description": "Refresh token only when API returns 401 Unauthorized (preAuthMode: onTestEndpoint401)",
+			"preAuthMode": "onTestEndpoint401",
+			"credentials": {
+				"accessToken": "dummy-access-token-replace-with-real-jwt",
+				"refreshToken": "dummy-refresh-token-replace-with-real",
+				"refreshUrl": "https://api.example.com/oauth/token",
+				"testUrl": "https://api.example.com/users/me",
+				"accessTokenFieldName": "access_token",
+				"refreshTokenFieldName": "refresh_token",
+				"authHeaderPrefix": "Bearer"
+			},
+			"refreshRequest": {
+				"method": "POST",
+				"headers": {
+					"Content-Type": "application/json"
+				},
+				"body": {
+					"grant_type": "refresh_token",
+					"client_id": "YOUR_CLIENT_ID",
+					"client_secret": "YOUR_CLIENT_SECRET",
+					"refresh_token": "{{$credentials.refreshToken}}"
+				}
+			},
+			"mainRequest": {
+				"url": "https://api.example.com/protected/resource",
+				"method": "GET"
+			}
+		},
+		{
+			"name": "Case D - Common Request Template",
+			"description": "Test common request template with headers and query params applied to all requests",
+			"preAuthMode": "always",
+			"credentials": {
+				"accessToken": "dummy-access-token-replace-with-real-jwt",
+				"refreshToken": "dummy-refresh-token-replace-with-real",
+				"refreshUrl": "https://api.example.com/oauth/token",
+				"testUrl": "https://api.example.com/users/me",
+				"accessTokenFieldName": "access_token",
+				"refreshTokenFieldName": "refresh_token",
+				"authHeaderPrefix": "Bearer",
+				"commonRequestTemplate": "{\"headers\":{\"User-Agent\":\"CustomApp/2.0\",\"X-Device-ID\":\"device-12345\"},\"qs\":{\"api_version\":\"v2\",\"stage\":\"production\"}}"
+			},
+			"refreshRequest": {
+				"method": "POST",
+				"headers": {
+					"Content-Type": "application/json"
+				},
+				"body": {
+					"grant_type": "refresh_token",
+					"client_id": "YOUR_CLIENT_ID",
+					"client_secret": "YOUR_CLIENT_SECRET",
+					"refresh_token": "{{$credentials.refreshToken}}"
+				}
+			},
+			"mainRequest": {
+				"url": "https://api.example.com/protected/resource",
+				"method": "GET"
+			}
+		}
+	]
+}

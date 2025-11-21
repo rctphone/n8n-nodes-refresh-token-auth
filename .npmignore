@@ -17,10 +17,20 @@ node_modules/
 docs/
 samples/
 
+# Tests
+tests/
+*.test.ts
+*.test.js
+*.test.d.ts
+*.test.js.map
+*.integration.test.ts
+jest.config.js
+TESTING.md
+INTEGRATION_TESTING.md
+
 # Build files
 *.tsbuildinfo
 dist/*.tsbuildinfo
 dist/**/*.tsbuildinfo
-*.test.ts
 .cursorrules
 

@@ -29,12 +29,15 @@ This community node provides a comprehensive solution for token-based authentica
 
 - 🔐 **Bearer Token Authentication** - Automatic inclusion of access token in Authorization header
 - 🔄 **Automatic Token Refresh** - Detects expired tokens and refreshes them automatically
-- ⏰ **JWT Expiration Check** - Validates JWT token expiration dates
+- ⏰ **JWT Expiration Check** - Validates JWT token expiration dates with configurable leeway
 - 🚨 **401 Error Handling** - Automatically refreshes token on authentication failures
-- ⚙️ **Customizable Field Names** - Configure field names for your specific API
+- 🎛️ **Flexible Refresh Modes** - Choose when to refresh: Never, Always, On JWT Expiry, or On 401 Error
+- ⚙️ **Customizable Field Names** - Configure field names for your specific API (supports dot notation)
 - 🎯 **Token Testing** - Built-in credential testing to verify token validity
 - 🔧 **Flexible Configuration** - Support for various token refresh mechanisms
 - 📝 **Custom Request Configuration** - Configure custom headers, body, and query string parameters for refresh requests
+- 🌐 **Common Request Template** - Apply shared headers and query params to all requests (refresh, test, and main)
+- 📦 **Form-urlencoded Support** - Supports both JSON and form-urlencoded refresh requests
 
 ---
 
@@ -110,27 +113,31 @@ services:
 2. Select **Refresh Token Auth**
 3. Fill in the required fields:
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| **Access Token** | Your current access token (JWT) | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` |
-| **Refresh Token** | Token used to obtain new access tokens | `your-refresh-token-here` |
-| **Refresh Token URL** | API endpoint to refresh the token | `https://api.example.com/auth/refresh` |
-| **Test URL** | Endpoint to test token validity | `https://api.example.com/user/profile` |
+| Field                 | Description                            | Example                                   |
+| --------------------- | -------------------------------------- | ----------------------------------------- |
+| **Access Token**      | Your current access token (JWT)        | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` |
+| **Refresh Token**     | Token used to obtain new access tokens | `your-refresh-token-here`                 |
+| **Refresh Token URL** | API endpoint to refresh the token      | `https://api.example.com/auth/refresh`    |
+| **Test URL**          | Endpoint to test token validity        | `https://api.example.com/user/profile`    |
 
 ### Advanced Options
 
 Click on **Advanced Options** to customize the authentication behavior:
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| **Access Token Field Name** | `access_token` | Field name in refresh response for new access token |
-| **Refresh Token Field Name** | `refresh_token` | Field name in refresh response for new refresh token |
-| **Authorization Header Prefix** | `Bearer` | Prefix for Authorization header (Bearer, Token, etc.) |
-| **Refresh Request Configuration** | - | JSON configuration for custom headers, body, and query string parameters in refresh requests |
+| Option                            | Default         | Description                                                                                             |
+| --------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------- |
+| **Access Token Field Name**       | `access_token`  | Field name in refresh response for new access token (supports dot notation, e.g., `data.token`)         |
+| **Refresh Token Field Name**      | `refresh_token` | Field name in refresh response for new refresh token (supports dot notation, e.g., `data.refreshToken`) |
+| **Authorization Header Prefix**   | `Bearer`        | Prefix for Authorization header (Bearer, Token, etc.)                                                   |
+| **Refresh Request Configuration** | -               | JSON configuration for custom headers, body, and query string parameters in refresh requests            |
+| **Common Request Template**       | -               | JSON template for headers and query params applied to ALL requests (refresh, test, and main)            |
+| **Refresh Token Mode**            | `onJwtExpiry`   | When to trigger token refresh: Never, Always, On JWT Expiry, or On 401 Error                            |
+| **JWT Expiry Leeway (seconds)**   | `60`            | Seconds before JWT expiration to trigger refresh (only for "On JWT Expiry" mode)                        |
 
 ### Refresh Request Configuration
 
 The **Refresh Request Configuration** field allows you to customize the refresh token request with:
+
 - **Custom Headers**: Add any headers required by your API (e.g., `User-Agent`, `X-API-Key`)
 - **Custom Body Parameters**: Include additional body parameters (e.g., `grant_type`, `client_id`, `client_secret`)
 - **Query String Parameters**: Add query parameters to the refresh URL
@@ -138,25 +145,63 @@ The **Refresh Request Configuration** field allows you to customize the refresh 
 The refresh token location (header or body) is automatically determined based on whether the refresh token field name appears in the `headers` or `body` section of the configuration.
 
 **Example Configuration:**
+
 ```json
 {
-  "headers": {
-    "User-Agent": "MyApp/1.0",
-    "X-API-Key": "your-api-key"
-  },
-  "body": {
-    "grant_type": "refresh_token",
-    "refresh_token": "refresh token here",
-    "client_id": "client_id_here",
-    "client_secret": "client_secret_here"
-  },
-  "qs": {
-    "version": "v1"
-  }
+	"headers": {
+		"User-Agent": "MyApp/1.0",
+		"X-API-Key": "your-api-key"
+	},
+	"body": {
+		"grant_type": "refresh_token",
+		"refresh_token": "refresh token here",
+		"client_id": "client_id_here",
+		"client_secret": "client_secret_here"
+	},
+	"qs": {
+		"version": "v1"
+	}
 }
 ```
 
 **Note**: The actual refresh token value will be automatically inserted based on the `Refresh Token Field Name` setting. If the field name appears in `headers`, the token will be sent in headers; if it appears in `body`, it will be sent in the body. If neither is specified, it defaults to the body.
+
+### Common Request Template
+
+The **Common Request Template** field allows you to define headers and query parameters that will be applied to **all** HTTP requests (refresh requests, test requests, and main requests). This is useful for:
+
+- Device identification headers
+- API version parameters
+- User-Agent strings
+- Any other headers or query params that should be consistent across all calls
+
+**Example:**
+
+```json
+{
+	"headers": {
+		"User-Agent": "MyApp/2.0",
+		"X-Device-ID": "device-12345"
+	},
+	"qs": {
+		"api_version": "v2",
+		"stage": "production"
+	}
+}
+```
+
+### Refresh Token Modes
+
+The credential supports four different refresh modes:
+
+| Mode                        | Description                                     | When to Use                                                       |
+| --------------------------- | ----------------------------------------------- | ----------------------------------------------------------------- |
+| **Never (Manual Only)**     | No automatic refresh                            | When you want to manage token refresh manually                    |
+| **Always**                  | Refresh before every request                    | When tokens are short-lived or API requires fresh tokens          |
+| **On JWT Expiry** (default) | Refresh when JWT exp claim indicates expiration | Most common scenario - efficient and automatic                    |
+| **On 401 Error**            | Refresh only when API returns 401 Unauthorized  | When JWT validation isn't reliable or tokens don't have exp claim |
+
+**JWT Expiry Leeway**: When using "On JWT Expiry" mode, you can configure how many seconds before the actual expiration the token should be refreshed. Default is 60 seconds, which provides a safety buffer to account for clock skew and network delays.
 
 ---
 
@@ -205,6 +250,7 @@ The refresh token location (header or body) is automatically determined based on
 ### Error Handling
 
 The credential automatically handles:
+
 - **JWT Expiration**: Checks token expiration date before making requests
 - **401 Unauthorized**: Detects authentication failures and triggers token refresh
 - **Token Refresh**: Calls refresh endpoint and updates stored credentials
@@ -227,6 +273,7 @@ Here's a simple workflow that uses the Refresh Token Auth credential:
 4. Execute the workflow
 
 The node will automatically:
+
 - Add the Bearer token to the Authorization header
 - Check if the token is expired
 - Refresh the token if needed
@@ -317,6 +364,7 @@ If your API requires a specific format for refresh requests, you can customize:
 ### Refresh Request Configuration
 
 The **Refresh Request Configuration** field provides full control over the refresh token request format. This is especially useful for APIs that require:
+
 - Additional authentication headers (API keys, custom headers)
 - OAuth2-style requests with `grant_type`, `client_id`, `client_secret`
 - Query string parameters
@@ -325,6 +373,7 @@ The **Refresh Request Configuration** field provides full control over the refre
 #### How Refresh Token Location is Determined
 
 The system automatically determines where to send the refresh token:
+
 - If the refresh token field name appears in the `headers` section → token is sent in headers
 - If the refresh token field name appears in the `body` section → token is sent in body
 - If neither is specified → token defaults to body
@@ -402,6 +451,7 @@ Refresh Request Configuration:
 **Problem**: Token expires but doesn't refresh automatically
 
 **Solution**:
+
 - Verify the Refresh Token URL is correct
 - Check that your refresh token is still valid
 - Ensure field names match your API's response format
@@ -413,6 +463,7 @@ Refresh Request Configuration:
 **Problem**: Getting 401 errors even after token refresh
 
 **Solution**:
+
 - Verify the Authorization Header Prefix is correct (Bearer vs Token)
 - Check if your API requires additional headers
 - Confirm the access token is being updated in the credential
@@ -422,6 +473,7 @@ Refresh Request Configuration:
 **Problem**: Refresh request fails with parsing error
 
 **Solution**:
+
 - Check your API's refresh endpoint response format
 - Update field names in Advanced Options to match response
 - Verify the refresh endpoint returns JSON
@@ -433,6 +485,7 @@ Refresh Request Configuration:
 **Problem**: Refresh request fails or doesn't match API requirements
 
 **Solution**:
+
 - Validate your Refresh Request Configuration JSON syntax
 - Ensure the refresh token field name appears in either `headers` or `body` section
 - Check that all required API parameters (client_id, client_secret, etc.) are included
@@ -505,4 +558,3 @@ If you need help:
 <p align="center">
 Made with ❤️ for the n8n community
 </p>
-

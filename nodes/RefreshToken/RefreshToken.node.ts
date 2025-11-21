@@ -5,11 +5,32 @@ import type {
 	INodeTypeDescription,
 	IHttpRequestOptions,
 	IDataObject,
+	IHttpRequestMethods,
+	IN8nHttpFullResponse,
+	IN8nHttpResponse,
 } from 'n8n-workflow';
 
-const CREDENTIALS_NAME = 'refreshTokenAuth'; // <- rename if your credential has a different name
+const CREDENTIALS_NAME = 'refreshTokenAuth';
 
-function safeParse(body: unknown) {
+type Event = {
+	stage: 'request' | 'response';
+	ts: string;
+	url: string;
+	method?: string;
+	statusCode?: number;
+	statusMessage?: string;
+	headers: Record<string, any>;
+	body: any;
+	isPreAuth?: boolean;
+	error?: string;
+	source: 'helper';
+};
+
+function isObject(v: unknown): v is Record<string, unknown> {
+	return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function safeParseBody(body: any) {
 	if (Buffer.isBuffer(body)) {
 		const s = body.toString('utf8');
 		try {
@@ -28,50 +49,40 @@ function safeParse(body: unknown) {
 	return body ?? null;
 }
 
-function isObject(v: unknown): v is Record<string, unknown> {
-	return !!v && typeof v === 'object' && !Array.isArray(v);
-}
-
-function redactHeaders(headers: Record<string, any>) {
+function redactHeaders(h: Record<string, any>) {
 	const SENSITIVE = ['authorization', 'x-api-key', 'api-key', 'client-secret', 'client_secret'];
 	const out: Record<string, any> = {};
-	for (const [k, v] of Object.entries(headers || {})) {
+	for (const [k, v] of Object.entries(h || {}))
 		out[k] = SENSITIVE.includes(k.toLowerCase()) ? '***REDACTED***' : v;
-	}
 	return out;
 }
+
 function redactBodyDeep(v: any): any {
-	if (!isObject(v)) return v;
+	if (!v || typeof v !== 'object') return v;
 	const copy = JSON.parse(JSON.stringify(v));
 	const walk = (o: any) => {
 		if (!o || typeof o !== 'object') return;
 		for (const k of Object.keys(o)) {
 			const lk = k.toLowerCase();
-			if (['access_token', 'refresh_token', 'client_secret', 'id_token'].includes(lk)) {
+			if (['access_token', 'refresh_token', 'client_secret', 'id_token'].includes(lk))
 				o[k] = '***REDACTED***';
-			} else {
-				walk(o[k]);
-			}
+			else walk(o[k]);
 		}
 	};
 	walk(copy);
 	return copy;
 }
 
-function looksLikePreAuth(opts: any, tokenUrlFromCreds?: string) {
-	const url = (opts?.url?.toString?.() ?? opts?.url ?? '').toString().toLowerCase();
-	const body = opts?.json ?? opts?.form ?? opts?.body;
+function looksLikePreAuth(url: string, body: any, tokenUrlFromCreds?: string) {
+	const u = (url || '').toLowerCase();
+	if (tokenUrlFromCreds && u === tokenUrlFromCreds.toLowerCase()) return true;
 
-	if (tokenUrlFromCreds && url === tokenUrlFromCreds.toLowerCase()) return true;
+	const asStr =
+		typeof body === 'string' ? body : Buffer.isBuffer(body) ? body.toString('utf8') : '';
 
-	const asStr = (v: any) =>
-		typeof v === 'string' ? v : Buffer.isBuffer(v) ? v.toString('utf8') : '';
-	if (asStr(body).includes('grant_type=refresh_token')) return true;
-
-	if (isObject(body) && String(body.grant_type) === 'refresh_token') return true;
-
-	if (url.includes('/oauth') && url.includes('/token')) return true;
-
+	if (asStr.includes('grant_type=refresh_token')) return true;
+	if (isObject(body) && String((body as any).grant_type) === 'refresh_token') return true;
+	if (u.includes('/oauth') && u.includes('/token')) return true;
 	return false;
 }
 
@@ -132,6 +143,23 @@ export class RefreshToken implements INodeType {
 				description: 'Used for POST/PUT/PATCH/DELETE when sending JSON',
 				displayOptions: { show: { method: ['POST', 'PUT', 'PATCH', 'DELETE'] } },
 			},
+			// Send / capture toggles
+			{
+				displayName: 'Send Pre-Authentication',
+				name: 'sendPreauth',
+				type: 'boolean',
+				default: true,
+				description:
+					'Whether to send pre-auth requests. If off, pre-auth requests are captured but NOT sent (mocked response).',
+			},
+			{
+				displayName: 'Send Main Request',
+				name: 'sendMain',
+				type: 'boolean',
+				default: true,
+				description:
+					'Whether to send main request. If off, main request is captured but NOT sent (mocked response).',
+			},
 			{
 				displayName: 'Redact Secrets in Output',
 				name: 'redact',
@@ -154,137 +182,182 @@ export class RefreshToken implements INodeType {
 		const items = this.getInputData();
 		const out: INodeExecutionData[] = [];
 
-		// Try to read token endpoint from credentials to help label preauth calls
+		// Read token URL from credentials (for better pre-auth tagging)
 		let tokenUrlFromCreds: string | undefined;
 		try {
-			const creds = (await this.getCredentials(CREDENTIALS_NAME)) as any;
+			const creds = (await this.getCredentials(CREDENTIALS_NAME)) as IDataObject;
 			tokenUrlFromCreds =
-				creds?.tokenUrl || creds?.accessTokenUrl || creds?.refreshUrl || creds?.authUrl;
+				(creds?.tokenUrl as string) ||
+				(creds?.accessTokenUrl as string) ||
+				(creds?.refreshUrl as string) ||
+				(creds?.authUrl as string);
 		} catch {
-			// ignore – optional
+			/* optional */
 		}
 
 		for (let i = 0; i < items.length; i++) {
 			const url = this.getNodeParameter('url', i) as string;
 			const method = this.getNodeParameter('method', i) as string;
 			const qs = this.getNodeParameter('qsJson', i, {}) as IDataObject;
-			const headersExtra = this.getNodeParameter('headersJson', i, {}) as Record<string, any>;
+			const headersExtra = this.getNodeParameter('headersJson', i, {}) as IDataObject;
+			const sendPreauth = this.getNodeParameter('sendPreauth', i, true) as boolean;
+			const sendMain = this.getNodeParameter('sendMain', i, true) as boolean;
 			const redact = this.getNodeParameter('redact', i, false) as boolean;
-			const truncate = this.getNodeParameter('truncate', i, 10000) as number;
+			const truncate = this.getNodeParameter('truncate', i, 12000) as number;
 
 			const body =
 				method === 'GET' ? undefined : (this.getNodeParameter('bodyJson', i, {}) as IDataObject);
 
-			type Event = {
-				stage: 'request' | 'response';
-				ts: string;
-				url: string;
-				method?: string;
-				statusCode?: number;
-				headers: Record<string, any>;
-				body: any;
-				isPreAuth?: boolean;
-			};
 			const events: Event[] = [];
 
-			// Hooks to capture every HTTP call (token exchange + main)
-			const hooks = {
-				beforeRequest: [
-					(opts: any) => {
-						events.push({
-							stage: 'request',
-							ts: new Date().toISOString(),
-							url: (opts?.url?.toString?.() ?? opts?.url ?? '').toString(),
-							method: opts?.method ?? 'GET',
-							headers: { ...(opts?.headers ?? {}) },
-							body: safeParse(opts?.json ?? opts?.form ?? opts?.body),
-							isPreAuth: looksLikePreAuth(opts, tokenUrlFromCreds),
-						});
-					},
-				],
-				afterResponse: [
-					(res: any) => {
-						events.push({
-							stage: 'response',
-							ts: new Date().toISOString(),
-							url: (res?.url ?? '').toString(),
-							statusCode: res?.statusCode,
-							headers: { ...(res?.headers ?? {}) },
-							body: safeParse(res?.body),
-						});
-						return res;
-					},
-				],
+			// Create wrapper for httpRequest that captures all HTTP calls
+			const originalHttpRequest = this.helpers.httpRequest.bind(this.helpers);
+
+			const wrappedHttpRequest = async (
+				requestOptions: IHttpRequestOptions,
+			): Promise<IN8nHttpFullResponse | IN8nHttpResponse> => {
+				// Extract URL for logging (before processing)
+				let urlForCapture = String(requestOptions.url || requestOptions.baseURL || '');
+				const reqBodyForCapture =
+					(requestOptions as any).form ??
+					(requestOptions as any).body ??
+					(requestOptions as any).json ??
+					undefined;
+
+				// Detect if this is pre-auth request
+				const isPre = looksLikePreAuth(urlForCapture, reqBodyForCapture, tokenUrlFromCreds);
+				const shouldSend = isPre ? sendPreauth : sendMain;
+
+				// Log request
+				events.push({
+					stage: 'request',
+					ts: new Date().toISOString(),
+					source: 'helper',
+					url: urlForCapture,
+					method: String(requestOptions.method || 'GET').toUpperCase(),
+					headers: { ...(requestOptions.headers || {}) },
+					body: safeParseBody(reqBodyForCapture),
+					isPreAuth: isPre,
+				});
+
+				// If we should not send, return mock
+				if (!shouldSend) {
+					const mock = {
+						body: { mocked: true, sent: false, reason: 'SKIPPED_BY_NODE' },
+						headers: {},
+						statusCode: 0,
+						statusMessage: 'MOCKED-NOT-SENT',
+					};
+
+					events.push({
+						stage: 'response',
+						ts: new Date().toISOString(),
+						source: 'helper',
+						url: urlForCapture,
+						statusCode: mock.statusCode,
+						statusMessage: mock.statusMessage,
+						headers: mock.headers,
+						body: mock.body,
+						isPreAuth: isPre,
+					});
+
+					if (requestOptions.returnFullResponse) {
+						return mock as IN8nHttpFullResponse;
+					}
+					return mock.body;
+				}
+
+				// Send actual request
+				const result = await originalHttpRequest(requestOptions);
+
+				// Log response
+				const responseData = (result as any).body ?? result;
+				const statusCode = (result as any).statusCode ?? 200;
+				const statusMessage = (result as any).statusMessage ?? 'OK';
+				const responseHeaders = (result as any).headers ?? {};
+
+				events.push({
+					stage: 'response',
+					ts: new Date().toISOString(),
+					source: 'helper',
+					url: urlForCapture,
+					statusCode,
+					statusMessage,
+					headers: responseHeaders,
+					body: safeParseBody(responseData),
+					isPreAuth: isPre,
+				});
+
+				return result;
 			};
 
+			// Replace httpRequest temporarily
+			(this.helpers as any).httpRequest = wrappedHttpRequest;
+
+			// Build the MAIN request with credentials (pre-auth will flow through OUR patched invokeAxios)
 			const reqOpts: IHttpRequestOptions = {
-				method: method as IHttpRequestOptions['method'],
+				method: method as IHttpRequestMethods,
 				url,
 				qs,
-				json: true,
 				headers: { ...headersExtra },
+				json: true,
 				body,
-				// legacy compat
-				// @ts-ignore
-				resolveWithFullResponse: true,
 				returnFullResponse: true,
-				// pass hooks through n8n to the underlying HTTP client
-				// @ts-ignore typings may omit hooks
-				hooks,
 			};
 
-			let fullResp: any;
+			let mainResp: any;
 			try {
-				fullResp = await this.helpers.httpRequestWithAuthentication.call(
+				mainResp = await this.helpers.httpRequestWithAuthentication.call(
 					this,
 					CREDENTIALS_NAME,
 					reqOpts,
 				);
-			} catch (e: any) {
-				// Even on failure, we still want to show what we captured
-				const errorPayload = isObject(e) ? e : { message: String(e) };
+			} catch (err) {
+				// restore httpRequest
+				(this.helpers as any).httpRequest = originalHttpRequest;
+
+				const trunc = (v: any) => {
+					if (truncate === 0) return v;
+					const s = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+					return s.length > truncate
+						? s.slice(0, truncate) + `… [truncated ${s.length - truncate} chars]`
+						: s;
+				};
+
 				out.push({
 					json: {
-						error: errorPayload,
-						events: redact
-							? events.map((ev) => ({
-									...ev,
-									headers: redactHeaders(ev.headers),
-									body:
-										ev.stage === 'request'
-											? ev.body // requests rarely carry tokens beyond Authorization header
-											: redactBodyDeep(ev.body),
-								}))
-							: events,
+						error: String((err as any)?.message || err),
+						events: events.map((e) => ({
+							...e,
+							headers: redact ? redactHeaders(e.headers) : e.headers,
+							body: trunc(e.stage === 'response' && redact ? redactBodyDeep(e.body) : e.body),
+						})),
+						note: 'Main request errored (often expected if sending disabled).',
 					},
 				});
 				continue;
+			} finally {
+				// Always restore httpRequest
+				(this.helpers as any).httpRequest = originalHttpRequest;
 			}
 
-			// Pair each request with its following response
-			type Call = { kind: 'preauth' | 'main' | 'unknown'; request?: Event; response?: Event };
+			// Pair requests with responses into preauth/main calls
+			type Call = { kind: 'preauth' | 'main'; request?: Event; response?: Event };
 			const calls: Call[] = [];
-			let pendingReq: Event | undefined;
-			for (const ev of events) {
-				if (ev.stage === 'request') {
-					pendingReq = ev;
-				} else {
-					if (pendingReq) {
-						const kind: Call['kind'] = pendingReq.isPreAuth
-							? 'preauth'
-							: calls.some((c) => c.kind === 'main')
-								? 'unknown'
-								: 'main';
+			let pending: Event | undefined;
 
-						calls.push({ kind, request: pendingReq, response: ev });
-						pendingReq = undefined;
-					} else {
-						calls.push({ kind: 'unknown', response: ev });
-					}
+			for (const e of events) {
+				if (e.stage === 'request') pending = e;
+				else if (pending) {
+					calls.push({
+						kind: pending.isPreAuth ? 'preauth' : 'main',
+						request: pending,
+						response: e,
+					});
+					pending = undefined;
 				}
 			}
 
-			// Truncation helper
 			const trunc = (v: any) => {
 				if (truncate === 0) return v;
 				const s = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
@@ -294,8 +367,8 @@ export class RefreshToken implements INodeType {
 			};
 
 			const mapped = calls.map((c) => {
-				const reqHeaders = c.request?.headers ?? {};
-				const resHeaders = c.response?.headers ?? {};
+				const reqH = c.request?.headers || {};
+				const resH = c.response?.headers || {};
 				return {
 					kind: c.kind,
 					request: c.request
@@ -303,7 +376,7 @@ export class RefreshToken implements INodeType {
 								ts: c.request.ts,
 								method: c.request.method,
 								url: c.request.url,
-								headers: redact ? redactHeaders(reqHeaders) : reqHeaders,
+								headers: redact ? redactHeaders(reqH) : reqH,
 								body: trunc(c.request.body),
 							}
 						: null,
@@ -311,9 +384,11 @@ export class RefreshToken implements INodeType {
 						? {
 								ts: c.response.ts,
 								statusCode: c.response.statusCode,
+								statusMessage: c.response.statusMessage,
 								url: c.response.url,
-								headers: redact ? redactHeaders(resHeaders) : resHeaders,
+								headers: redact ? redactHeaders(resH) : resH,
 								body: trunc(redact ? redactBodyDeep(c.response.body) : c.response.body),
+								error: c.response.error || undefined,
 							}
 						: null,
 				};
@@ -324,11 +399,19 @@ export class RefreshToken implements INodeType {
 					summary: {
 						item: i,
 						mainUrl: url,
-						statusCode: fullResp?.statusCode ?? null,
-						totalEvents: events.length,
-						totalCalls: mapped.length,
+						statusCode: mainResp?.statusCode ?? null,
+						preauthCount: mapped.filter((c) => c.kind === 'preauth').length,
+						mainCount: mapped.filter((c) => c.kind === 'main').length,
+						sendPreauth,
+						sendMain,
 					},
 					calls: mapped,
+					// raw timeline
+					events: events.map((e) => ({
+						...e,
+						headers: redact ? redactHeaders(e.headers) : e.headers,
+						body: trunc(e.stage === 'response' && redact ? redactBodyDeep(e.body) : e.body),
+					})),
 				},
 			});
 		}
