@@ -38,6 +38,7 @@ This community node provides a comprehensive solution for token-based authentica
 - 📝 **Custom Request Configuration** - Configure custom headers, body, and query string parameters for refresh requests
 - 🌐 **Common Request Template** - Apply shared headers and query params to all requests (refresh, test, and main)
 - 📦 **Form-urlencoded Support** - Supports both JSON and form-urlencoded refresh requests
+- 🔗 **Credential Placeholders** - Use `{{$credentials.accessToken}}` and `{{$credentials.refreshToken}}` in configuration
 
 ---
 
@@ -141,6 +142,7 @@ The **Refresh Request Configuration** field allows you to customize the refresh 
 - **Custom Headers**: Add any headers required by your API (e.g., `User-Agent`, `X-API-Key`)
 - **Custom Body Parameters**: Include additional body parameters (e.g., `grant_type`, `client_id`, `client_secret`)
 - **Query String Parameters**: Add query parameters to the refresh URL
+- **Credential Placeholders**: Use `{{$credentials.accessToken}}` and `{{$credentials.refreshToken}}` to reference current token values
 
 The refresh token location (header or body) is automatically determined based on whether the refresh token field name appears in the `headers` or `body` section of the configuration.
 
@@ -154,7 +156,7 @@ The refresh token location (header or body) is automatically determined based on
 	},
 	"body": {
 		"grant_type": "refresh_token",
-		"refresh_token": "refresh token here",
+		"refresh_token": "{{$credentials.refreshToken}}",
 		"client_id": "client_id_here",
 		"client_secret": "client_secret_here"
 	},
@@ -165,6 +167,8 @@ The refresh token location (header or body) is automatically determined based on
 ```
 
 **Note**: The actual refresh token value will be automatically inserted based on the `Refresh Token Field Name` setting. If the field name appears in `headers`, the token will be sent in headers; if it appears in `body`, it will be sent in the body. If neither is specified, it defaults to the body.
+
+**Credential Placeholders**: You can use `{{$credentials.accessToken}}` and `{{$credentials.refreshToken}}` placeholders anywhere in the configuration. These will be automatically replaced with the current token values from your credentials. This is useful when you need to reference tokens in custom headers or body parameters.
 
 ### Common Request Template
 
@@ -181,7 +185,8 @@ The **Common Request Template** field allows you to define headers and query par
 {
 	"headers": {
 		"User-Agent": "MyApp/2.0",
-		"X-Device-ID": "device-12345"
+		"X-Device-ID": "device-12345",
+		"X-Access-Token": "{{$credentials.accessToken}}"
 	},
 	"qs": {
 		"api_version": "v2",
@@ -189,6 +194,8 @@ The **Common Request Template** field allows you to define headers and query par
 	}
 }
 ```
+
+**Credential Placeholders**: You can use `{{$credentials.accessToken}}` and `{{$credentials.refreshToken}}` placeholders in the template. These will be automatically replaced with the current token values and applied to all requests (refresh, test, and main).
 
 ### Refresh Token Modes
 
@@ -338,7 +345,7 @@ Advanced Options:
     },
     "body": {
       "grant_type": "refresh_token",
-      "refresh_token": "refresh token here",
+      "refresh_token": "{{$credentials.refreshToken}}",
       "client_id": "client_id_here",
       "client_secret": "client_secret_here"
     },
@@ -348,9 +355,71 @@ Advanced Options:
   }
 ```
 
+#### Example 4: Using Credential Placeholders
+
+You can use `{{$credentials.accessToken}}` and `{{$credentials.refreshToken}}` placeholders in your configuration to reference current token values:
+
+```
+Refresh Request Configuration:
+{
+  "headers": {
+    "Authorization": "Bearer {{$credentials.accessToken}}",
+    "X-Refresh-Token": "{{$credentials.refreshToken}}"
+  },
+  "body": {
+    "grant_type": "refresh_token",
+    "refresh_token": "{{$credentials.refreshToken}}",
+    "token": "{{$credentials.accessToken}}"
+  }
+}
+
+Common Request Template:
+{
+  "headers": {
+    "X-Access-Token": "{{$credentials.accessToken}}",
+    "User-Agent": "MyApp/1.0"
+  },
+  "qs": {
+    "token": "{{$credentials.accessToken}}"
+  }
+}
+```
+
+The placeholders are automatically replaced with actual token values before making requests.
+
 ---
 
 ## ⚙️ Advanced Configuration
+
+### Credential Placeholders
+
+The credential supports n8n expression placeholders that allow you to reference current token values in your configuration:
+
+- **`{{$credentials.accessToken}}`** - Replaced with the current access token value
+- **`{{$credentials.refreshToken}}`** - Replaced with the current refresh token value
+
+These placeholders can be used in:
+
+- **Refresh Request Configuration** - In headers, body, or query string parameters
+- **Common Request Template** - In headers or query string parameters
+
+**Example Usage:**
+
+```json
+{
+	"headers": {
+		"Authorization": "Bearer {{$credentials.accessToken}}",
+		"X-Refresh-Token": "{{$credentials.refreshToken}}"
+	},
+	"body": {
+		"grant_type": "refresh_token",
+		"refresh_token": "{{$credentials.refreshToken}}",
+		"current_token": "{{$credentials.accessToken}}"
+	}
+}
+```
+
+The placeholders are automatically replaced with actual token values before making requests. This is particularly useful when you need to include tokens in custom headers or when your API requires both tokens in the refresh request.
 
 ### Custom Refresh Request Format
 
@@ -360,6 +429,7 @@ If your API requires a specific format for refresh requests, you can customize:
 2. **Request Location**: Automatically determined by refresh request configuration (header or body)
 3. **Header Prefix**: Change "Bearer" to "Token" or custom prefix
 4. **Custom Headers, Body, and Query Parameters**: Use Refresh Request Configuration JSON
+5. **Credential Placeholders**: Use `{{$credentials.accessToken}}` and `{{$credentials.refreshToken}}` to reference tokens
 
 ### Refresh Request Configuration
 
@@ -404,12 +474,14 @@ Refresh Request Configuration:
   },
   "body": {
     "grant_type": "refresh_token",
-    "refresh_token": "refresh token here",
+    "refresh_token": "{{$credentials.refreshToken}}",
     "client_id": "your-client-id",
     "client_secret": "your-client-secret"
   }
 }
 ```
+
+**Note**: Using `{{$credentials.refreshToken}}` placeholder ensures the actual refresh token value is automatically inserted.
 
 #### Example: API with Refresh Token in Header
 
@@ -431,7 +503,7 @@ Refresh Token Field Name: refresh_token
 Refresh Request Configuration:
 {
   "headers": {
-    "refresh_token": "refresh token here",
+    "Authorization": "Bearer {{$credentials.refreshToken}}",
     "X-API-Key": "your-api-key"
   },
   "body": {
@@ -439,6 +511,8 @@ Refresh Request Configuration:
   }
 }
 ```
+
+**Note**: Using `{{$credentials.refreshToken}}` placeholder ensures the actual refresh token value is automatically inserted into the Authorization header.
 
 ---
 

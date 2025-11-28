@@ -52,27 +52,92 @@ function safeParseBody(body: any): any {
 	return body ?? null;
 }
 
-/** Mask sensitive headers */
-function redactHeaders(h: Record<string, any>): Record<string, any> {
+/** Mask sensitive headers (by key name or JWT value starting with "eyJ") */
+function redactHeaders(
+	h: Record<string, any>,
+	extraSensitiveKeys: string[] = [],
+): Record<string, any> {
 	const out: Record<string, any> = {};
+	// Combine standard header keys with extra sensitive keys (simple, non-path ones)
+	const allSensitiveKeys = [
+		...SENSITIVE_HEADERS,
+		...extraSensitiveKeys.filter((k) => !k.includes('.')),
+	];
 	for (const [k, v] of Object.entries(h || {})) {
-		out[k] = SENSITIVE_HEADERS.includes(k.toLowerCase()) ? '***REDACTED***' : v;
+		// Check if header key is sensitive
+		if (allSensitiveKeys.some((sk) => sk.toLowerCase() === k.toLowerCase())) {
+			out[k] = '***REDACTED***';
+		} else if (typeof v === 'string' && v.trim().startsWith('eyJ')) {
+			// Redact JWT tokens in header values
+			out[k] = '***REDACTED***';
+		} else {
+			out[k] = v;
+		}
 	}
 	return out;
 }
 
+/**
+ * Redact a value at a dot-notation path in an object.
+ * E.g. path "AuthenticationResult.IdToken" will redact obj.AuthenticationResult.IdToken
+ */
+function redactAtPath(obj: any, path: string): void {
+	if (!obj || typeof obj !== 'object') return;
+	const parts = path.split('.');
+	let current = obj;
+	for (let i = 0; i < parts.length - 1; i++) {
+		const part = parts[i];
+		// Find key case-insensitively
+		const actualKey = Object.keys(current).find((k) => k.toLowerCase() === part.toLowerCase());
+		if (!actualKey || !current[actualKey] || typeof current[actualKey] !== 'object') return;
+		current = current[actualKey];
+	}
+	const lastPart = parts[parts.length - 1];
+	const actualKey = Object.keys(current).find((k) => k.toLowerCase() === lastPart.toLowerCase());
+	if (actualKey && current[actualKey] !== undefined) {
+		current[actualKey] = '***REDACTED***';
+	}
+}
+
 /** Deep-walk object and mask sensitive token fields */
-function redactBodyDeep(v: any): any {
+function redactBodyDeep(v: any, extraSensitiveKeys: string[] = []): any {
 	if (!v || typeof v !== 'object') return v;
 	const copy = JSON.parse(JSON.stringify(v));
+
+	// Split extra keys into simple keys and dot-notation paths
+	const simpleSensitiveKeys = [...SENSITIVE_BODY_KEYS];
+	const pathSensitiveKeys: string[] = [];
+	for (const key of extraSensitiveKeys) {
+		if (key.includes('.')) {
+			pathSensitiveKeys.push(key);
+		} else {
+			simpleSensitiveKeys.push(key);
+		}
+	}
+
+	// Deep walk for simple keys (case-insensitive) and JWT tokens (strings starting with "eyJ")
 	const walk = (o: any) => {
 		if (!o || typeof o !== 'object') return;
 		for (const k of Object.keys(o)) {
-			if (SENSITIVE_BODY_KEYS.includes(k.toLowerCase())) o[k] = '***REDACTED***';
-			else walk(o[k]);
+			const value = o[k];
+			// Check if key matches sensitive keys
+			if (simpleSensitiveKeys.some((sk) => sk.toLowerCase() === k.toLowerCase())) {
+				o[k] = '***REDACTED***';
+			} else if (typeof value === 'string' && value.trim().startsWith('eyJ')) {
+				// Redact JWT tokens (base64url encoded JSON always starts with "eyJ")
+				o[k] = '***REDACTED***';
+			} else {
+				walk(value);
+			}
 		}
 	};
 	walk(copy);
+
+	// Handle dot-notation paths
+	for (const path of pathSensitiveKeys) {
+		redactAtPath(copy, path);
+	}
+
 	return copy;
 }
 
@@ -101,11 +166,16 @@ function truncate(v: any, maxLen: number): any {
 }
 
 /** Format event for output (apply redact & truncate) */
-function formatEvent(e: Event, redact: boolean, truncLen: number): Event {
+function formatEvent(
+	e: Event,
+	redact: boolean,
+	truncLen: number,
+	extraSensitiveKeys: string[] = [],
+): Event {
 	return {
 		...e,
-		headers: redact ? redactHeaders(e.headers) : e.headers,
-		body: truncate(e.stage === 'response' && redact ? redactBodyDeep(e.body) : e.body, truncLen),
+		headers: redact ? redactHeaders(e.headers, extraSensitiveKeys) : e.headers,
+		body: truncate(redact ? redactBodyDeep(e.body, extraSensitiveKeys) : e.body, truncLen),
 	};
 }
 
@@ -202,17 +272,26 @@ export class RefreshToken implements INodeType {
 		const items = this.getInputData();
 		const out: INodeExecutionData[] = [];
 
-		// Read token URL from credentials (for better pre-auth tagging)
+		// Read token URL and field names from credentials (for better pre-auth tagging and redaction)
 		let tokenUrlFromCreds: string | undefined;
+		let accessTokenFieldName: string | undefined;
+		let refreshTokenFieldName: string | undefined;
 		try {
 			const creds = (await this.getCredentials(CREDENTIALS_NAME)) as IDataObject;
 			tokenUrlFromCreds = (creds?.tokenUrl ??
 				creds?.accessTokenUrl ??
 				creds?.refreshUrl ??
 				creds?.authUrl) as string | undefined;
+			accessTokenFieldName = creds?.accessTokenFieldName as string | undefined;
+			refreshTokenFieldName = creds?.refreshTokenFieldName as string | undefined;
 		} catch {
 			/* optional */
 		}
+
+		// Build list of extra sensitive field names from credentials (supports dot-notation paths)
+		const extraSensitiveKeys: string[] = [];
+		if (accessTokenFieldName) extraSensitiveKeys.push(accessTokenFieldName);
+		if (refreshTokenFieldName) extraSensitiveKeys.push(refreshTokenFieldName);
 
 		for (let i = 0; i < items.length; i++) {
 			const url = this.getNodeParameter('url', i) as string;
@@ -308,7 +387,7 @@ export class RefreshToken implements INodeType {
 				out.push({
 					json: {
 						error: String((err as any)?.message || err),
-						events: events.map((e) => formatEvent(e, redact, truncLen)),
+						events: events.map((e) => formatEvent(e, redact, truncLen, extraSensitiveKeys)),
 						note: 'Main request errored (often expected if sending disabled).',
 					},
 				});
@@ -317,7 +396,9 @@ export class RefreshToken implements INodeType {
 				(this.helpers as any).httpRequest = originalHttpRequest;
 			}
 
-			out.push({ json: { events: events.map((e) => formatEvent(e, redact, truncLen)) } });
+			out.push({
+				json: { events: events.map((e) => formatEvent(e, redact, truncLen, extraSensitiveKeys)) },
+			});
 		}
 
 		return [out];
