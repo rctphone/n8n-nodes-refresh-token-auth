@@ -36,7 +36,8 @@
 		"test:watch": "jest --watch",
 		"test:coverage": "jest --coverage",
 		"test:integration": "jest --testMatch '**/*.integration.test.ts' --testPathIgnorePatterns=''",
-		"test:integration:proxy": "HTTPS_PROXY=http://127.0.0.1:8888 HTTP_PROXY=http://127.0.0.1:8888 NODE_TLS_REJECT_UNAUTHORIZED=0 jest --testMatch '**/*.integration.test.ts' --testPathIgnorePatterns=''"
+		"n8n:start": "N8N_SECURE_COOKIE=false N8N_CUSTOM_EXTENSIONS=$PWD npx n8n start",
+		"n8n:debug": "N8N_SECURE_COOKIE=false N8N_CUSTOM_EXTENSIONS=$PWD node --inspect node_modules/n8n/bin/n8n start"
 	},
 	"files": [
 		"dist/**/*.js",
@@ -73,8 +74,9 @@
 		"eslint-plugin-n8n-nodes-base": "^1.16.4",
 		"gulp": "^5.0.0",
 		"jest": "^29.7.0",
+		"n8n": "^1.121.2",
 		"n8n-core": "^1.117.1",
-		"n8n-workflow": "^1.70.0",
+		"n8n-workflow": "^1.115.0",
 		"prettier": "^3.5.3",
 		"ts-jest": "^29.2.5",
 		"typescript": "^5.8.2"

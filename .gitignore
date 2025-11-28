@@ -21,10 +21,12 @@ tests/local/*
 !tests/local/*.example.json
 
 # Test files (not needed in repo)
-**/*.test.ts
 **/*.spec.ts
 **/*.integration.test.ts
 jest.config.js
 coverage/
 TESTING.md
 INTEGRATION_QUICKSTART.md
+
+# Reference repository (cloned n8n source for reference)
+.reference/
