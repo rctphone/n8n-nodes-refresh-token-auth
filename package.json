@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-refresh-token-auth",
-	"version": "1.0.35",
+	"version": "1.0.36",
 	"description": "n8n community node with automatic refresh token support",
 	"keywords": [
 		"n8n-community-node-package",
