@@ -185,6 +185,7 @@ export class RefreshToken implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'RefreshToken (Debug)',
 		name: 'refreshToken',
+		subtitle: '={{$parameter["method"] + ": " + $parameter["url"]}}',
 		icon: 'file:refresh-token-auth.svg',
 		group: ['transform'],
 		version: 1,
