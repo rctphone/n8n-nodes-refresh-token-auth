@@ -47,44 +47,6 @@ export const mainProperties: INodeProperties[] = [
 		description: 'The URL to make the request to',
 		required: true,
 	},
-	{
-		displayName: 'Authentication',
-		name: 'authentication',
-		noDataExpression: true,
-		type: 'options',
-		options: [
-			{
-				name: 'None',
-				value: 'none',
-			},
-			{
-				name: 'Predefined Credential Type',
-				value: 'predefinedCredentialType',
-				description:
-					"We've already implemented auth for many services so that you don't have to set it up manually",
-			},
-			{
-				name: 'Generic Credential Type',
-				value: 'genericCredentialType',
-				description: 'Fully customizable. Choose between basic, header, OAuth2, etc.',
-			},
-		],
-		default: 'none',
-	},
-	{
-		displayName: 'Credential Type',
-		name: 'nodeCredentialType',
-		type: 'credentialsSelect',
-		noDataExpression: true,
-		required: true,
-		default: '',
-		credentialTypes: ['extends:oAuth2Api', 'extends:oAuth1Api', 'has:authenticate'],
-		displayOptions: {
-			show: {
-				authentication: ['predefinedCredentialType'],
-			},
-		},
-	},
 
 	{
 		displayName: 'Send Query Parameters',
