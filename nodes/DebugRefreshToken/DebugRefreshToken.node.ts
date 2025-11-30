@@ -181,7 +181,7 @@ function formatEvent(
 
 // --- Node definition ---
 
-export class RefreshToken implements INodeType {
+export class DebugRefreshToken implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'RefreshToken (Debug)',
 		name: 'refreshToken',

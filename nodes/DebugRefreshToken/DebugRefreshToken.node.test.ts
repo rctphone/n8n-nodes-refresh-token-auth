@@ -1,4 +1,4 @@
-import { RefreshToken } from './RefreshToken.node';
+import { DebugRefreshToken } from './DebugRefreshToken.node';
 import type {
 	IExecuteFunctions,
 	IHttpRequestOptions,
@@ -55,12 +55,12 @@ const mockMainRequestResponse: IN8nHttpFullResponse = {
 	statusMessage: 'OK',
 };
 
-describe('RefreshToken Node', () => {
-	let node: RefreshToken;
+describe('DebugRefreshToken Node', () => {
+	let node: DebugRefreshToken;
 	let mockExecuteFunctions: Partial<IExecuteFunctions>;
 
 	beforeEach(() => {
-		node = new RefreshToken();
+		node = new DebugRefreshToken();
 		jest.clearAllMocks();
 
 		// Mock invokeAxios to return appropriate responses based on URL

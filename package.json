@@ -58,7 +58,7 @@
 			"dist/credentials/RefreshTokenAuth.credentials.js"
 		],
 		"nodes": [
-			"dist/nodes/RefreshToken/RefreshToken.node.js",
+			"dist/nodes/DebugRefreshToken/DebugRefreshToken.node.js",
 			"dist/nodes/HttpRequestWithRefreshToken/HttpRequestWithRefreshToken.node.js"
 		]
 	},
