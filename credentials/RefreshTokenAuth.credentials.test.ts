@@ -38,6 +38,9 @@ describe('RefreshTokenAuth', () => {
 
 	beforeEach(() => {
 		credential = new RefreshTokenAuth();
+		// Enable dynamic authenticate function for tests that need to call authenticate()
+		// This replaces IAuthenticateGeneric with authenticateFunc
+		RefreshTokenAuth.enableAuthenticateFunc();
 		jest.clearAllMocks();
 	});
 
@@ -501,7 +504,13 @@ describe('RefreshTokenAuth', () => {
 	});
 
 	describe('Authentication Configuration', () => {
-		it('should have authenticate method', () => {
+		// Type helper for authenticate function after enableAuthenticateFunc() is called
+		type AuthenticateFn = (
+			credentials: ICredentialDataDecryptedObject,
+			requestOptions: IHttpRequestOptions,
+		) => Promise<IHttpRequestOptions>;
+
+		it('should have authenticate method after enableAuthenticateFunc()', () => {
 			expect(typeof credential.authenticate).toBe('function');
 		});
 
@@ -515,7 +524,8 @@ describe('RefreshTokenAuth', () => {
 				method: 'GET',
 			};
 
-			const result = await credential.authenticate(mockCredentials, requestOptions);
+			const authenticate = credential.authenticate as unknown as AuthenticateFn;
+			const result = await authenticate(mockCredentials, requestOptions);
 
 			expect(result.headers).toHaveProperty('Authorization', 'Bearer test_token');
 		});
@@ -540,7 +550,8 @@ describe('RefreshTokenAuth', () => {
 				method: 'GET',
 			};
 
-			const result = await credential.authenticate(mockCredentials, requestOptions);
+			const authenticate = credential.authenticate as unknown as AuthenticateFn;
+			const result = await authenticate(mockCredentials, requestOptions);
 
 			expect(result.headers).toHaveProperty('Authorization', 'Bearer test_token');
 			expect(result.headers).toHaveProperty('User-Agent', 'CustomApp/1.0');
@@ -628,6 +639,12 @@ describe('RefreshTokenAuth', () => {
 	});
 
 	describe('authenticate()', () => {
+		// Type helper for authenticate function after enableAuthenticateFunc() is called
+		type AuthenticateFn = (
+			credentials: ICredentialDataDecryptedObject,
+			requestOptions: IHttpRequestOptions,
+		) => Promise<IHttpRequestOptions>;
+
 		it('should add Authorization header with access token', async () => {
 			const credentials: ICredentialDataDecryptedObject = {
 				accessToken: 'test-token-123',
@@ -639,7 +656,8 @@ describe('RefreshTokenAuth', () => {
 				method: 'GET',
 			};
 
-			const result = await credential.authenticate(credentials, requestOptions);
+			const authenticate = credential.authenticate as unknown as AuthenticateFn;
+			const result = await authenticate(credentials, requestOptions);
 
 			expect(result.headers).toBeDefined();
 			expect(result.headers!.Authorization).toBe('Bearer test-token-123');
@@ -665,7 +683,8 @@ describe('RefreshTokenAuth', () => {
 				method: 'GET',
 			};
 
-			const result = await credential.authenticate(credentials, requestOptions);
+			const authenticate = credential.authenticate as unknown as AuthenticateFn;
+			const result = await authenticate(credentials, requestOptions);
 
 			expect(result.headers).toBeDefined();
 			expect(result.headers!.Authorization).toBe('Bearer test-token-123');
@@ -699,7 +718,8 @@ describe('RefreshTokenAuth', () => {
 				method: 'GET',
 			};
 
-			const result = await credential.authenticate(credentials, requestOptions);
+			const authenticate = credential.authenticate as unknown as AuthenticateFn;
+			const result = await authenticate(credentials, requestOptions);
 
 			// Should have Authorization header
 			expect(result.headers).toBeDefined();
@@ -733,7 +753,8 @@ describe('RefreshTokenAuth', () => {
 				method: 'GET',
 			};
 
-			const result = await credential.authenticate(credentials, requestOptions);
+			const authenticate = credential.authenticate as unknown as AuthenticateFn;
+			const result = await authenticate(credentials, requestOptions);
 
 			// Should have Authorization and common headers
 			expect(result.headers!.Authorization).toBe('Bearer test-token-123');
@@ -754,7 +775,8 @@ describe('RefreshTokenAuth', () => {
 				method: 'GET',
 			};
 
-			const result = await credential.authenticate(credentials, requestOptions);
+			const authenticate = credential.authenticate as unknown as AuthenticateFn;
+			const result = await authenticate(credentials, requestOptions);
 
 			expect(result.headers).toBeDefined();
 			expect(result.headers!.Authorization).toBe('Bearer test-token-123');
@@ -771,7 +793,8 @@ describe('RefreshTokenAuth', () => {
 				method: 'GET',
 			};
 
-			const result = await credential.authenticate(credentials, requestOptions);
+			const authenticate = credential.authenticate as unknown as AuthenticateFn;
+			const result = await authenticate(credentials, requestOptions);
 
 			expect(result.headers).toBeDefined();
 			expect(result.headers!.Authorization).toBe('Bearer test-token-123');
@@ -788,7 +811,8 @@ describe('RefreshTokenAuth', () => {
 				method: 'GET',
 			};
 
-			const result = await credential.authenticate(credentials, requestOptions);
+			const authenticate = credential.authenticate as unknown as AuthenticateFn;
+			const result = await authenticate(credentials, requestOptions);
 
 			expect(result.headers).toBeDefined();
 			expect(result.headers!.Authorization).toBe('Bearer:test-token-123');
@@ -805,7 +829,8 @@ describe('RefreshTokenAuth', () => {
 				method: 'GET',
 			};
 
-			const result = await credential.authenticate(credentials, requestOptions);
+			const authenticate = credential.authenticate as unknown as AuthenticateFn;
+			const result = await authenticate(credentials, requestOptions);
 
 			expect(result.headers).toBeDefined();
 			expect(result.headers!.Authorization).toBe('Tokentest-token-123');

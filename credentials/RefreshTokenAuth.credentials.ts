@@ -9,6 +9,7 @@ import {
 	Icon,
 	jsonParse,
 	IDataObject,
+	IAuthenticateGeneric,
 } from 'n8n-workflow';
 
 import jwt from 'jsonwebtoken';
@@ -103,12 +104,49 @@ function validateAndParseJwtPayload(token: unknown): IDataObject {
 
 // eslint-disable-next-line n8n-nodes-base/cred-class-field-display-name-missing-api, n8n-nodes-base/cred-class-name-unsuffixed
 export class RefreshTokenAuth implements ICredentialType {
+	/**
+	 * Static reference to the class instance.
+	 *
+	 * WHY WE NEED THIS PATTERN:
+	 * 1. n8n requires `authenticate` property to be IAuthenticateGeneric for credentials
+	 *    to appear in "Predefined Credential Type" dropdown in HTTP Request node.
+	 * 2. However, IAuthenticateGeneric is a static object with fixed expressions,
+	 *    which doesn't support our dynamic authentication logic (commonRequestTemplate, etc.)
+	 * 3. n8n's httpRequest helper ignores custom credential types for generic auth -
+	 *    it only processes predefined credential types from nodes-base.
+	 *
+	 * SOLUTION:
+	 * - Declare `authenticate` as IAuthenticateGeneric to satisfy n8n's type requirements
+	 * - Store class instance in static variable via constructor
+	 * - In preAuthentication, replace `authenticate` with `authenticateFunc` dynamically
+	 * - This allows credentials to appear in dropdown AND use dynamic authentication
+	 */
+	private static instance: RefreshTokenAuth;
+
+	constructor() {
+		// Store instance reference for later use in enableAuthenticateFunc
+		RefreshTokenAuth.instance = this;
+	}
+
+	/**
+	 * Replace static IAuthenticateGeneric with dynamic authenticateFunc.
+	 * Called from preAuthentication before each request, or from unit tests.
+	 *
+	 * This enables:
+	 * - Dynamic Authorization header with configurable prefix and separator
+	 * - Application of commonRequestTemplate to all requests
+	 */
+	static enableAuthenticateFunc(): void {
+		const credentialType = RefreshTokenAuth.instance as any;
+		credentialType.authenticate = credentialType.authenticateFunc;
+	}
+
 	// eslint-disable-next-line n8n-nodes-base/cred-class-field-name-unsuffixed
 	name = 'refreshTokenAuth';
-	// extends = ['oAuth2Api'];
+	// extends = ['httpCustomAuth'];
 	// eslint-disable-next-line n8n-nodes-base/cred-class-field-display-name-missing-api
 	displayName = 'Refresh Token Auth';
-	//genericAuth = true;
+	// genericAuth = true;
 	icon: Icon = 'node:n8n-nodes-base.httpRequest';
 	documentationUrl = 'https://github.com/rctphone/n8n-nodes-refresh-token-auth';
 	properties: INodeProperties[] = [
@@ -279,14 +317,27 @@ Example:
 	];
 
 	/**
+	 * Static authenticate configuration using generic type with Authorization header
+	 * Separator logic: Bearer uses space, other prefixes use no separator
+	 */
+	authenticate: IAuthenticateGeneric = {
+		type: 'generic',
+		properties: {
+			headers: {
+				Authorization: '={{$credentials.authHeaderPrefix}} {{$credentials.accessToken}}',
+			},
+		},
+	};
+
+	/**
 	 * Authenticate requests by adding Bearer token to Authorization header
 	 * Also applies common request template (headers and query params) to all requests
 	 */
-	async authenticate(
+	async authenticateFunc(
 		credentials: ICredentialDataDecryptedObject,
 		requestOptions: IHttpRequestOptions,
 	): Promise<IHttpRequestOptions> {
-		//LoggerProxy.debug('🔥🔥🔥 RefreshTokenAuth.authenticate CALLED! 🔥🔥🔥');
+		//LoggerProxy.debug('🔥🔥🔥 RefreshTokenAuth.authenticateFunc CALLED! 🔥🔥🔥');
 
 		// Build Authorization header with proper separator
 		const prefix = credentials.authHeaderPrefix || 'Bearer';
@@ -322,6 +373,9 @@ Example:
 	 */
 	async preAuthentication(this: IHttpRequestHelper, credentials: ICredentialDataDecryptedObject) {
 		//LoggerProxy.debug('🔥🔥🔥 RefreshTokenAuth.preAuthentication CALLED! 🔥🔥🔥');
+
+		// Enable dynamic authenticate function
+		RefreshTokenAuth.enableAuthenticateFunc();
 
 		const accessToken = credentials.accessToken as string;
 		const refreshTokenMode = (credentials.refreshTokenMode as string) || 'onJwtExpiry';
