@@ -248,14 +248,19 @@ export class RefreshTokenAuth implements ICredentialType {
 			name: 'refreshRequestJson',
 			type: 'json',
 			required: false,
-			description: `JSON configuration for refresh token request.
-
-Supported placeholders:
-• {{$credentials.accessToken}}
-• {{$credentials.refreshToken}}
-
-Example:
-{
+			description: 'JSON configuration for refresh token request',
+			placeholder: `{"headers": {...}, "body": {...}, "qs": {...}}`,
+			default: '',
+		},
+		{
+			displayName: `JSON configuration for refresh token request<br />
+<br />
+Supported placeholders:<br />
+• {{$credentials.accessToken}}<br />
+• {{$credentials.refreshToken}}<br />
+<br />
+Example:<br />
+<pre>{
   "headers": { "User-Agent": "MyApp/1.0" },
   "body": {
     "grant_type": "refresh_token",
@@ -264,8 +269,9 @@ Example:
     "client_secret": "your_secret"
   },
   "qs": {}
-}`,
-			placeholder: `{"headers": {...}, "body": {...}, "qs": {...}}`,
+}</pre>`,
+			name: 'refreshRequestJsonNotice',
+			type: 'notice',
 			default: '',
 		},
 		{
@@ -273,21 +279,27 @@ Example:
 			name: 'commonRequestTemplate',
 			type: 'json',
 			required: false,
-			description: `JSON template for headers and query parameters applied to ALL requests (refresh, test, main).
-
-Supported placeholders:
-• {{$credentials.accessToken}}
-• {{$credentials.refreshToken}}
-
-Example:
-{
+			description:
+				'JSON template for headers and query parameters applied to ALL requests (refresh, test, main)',
+			placeholder: `{"headers": {...}, "qs": {...}}`,
+			default: '',
+		},
+		{
+			displayName: `JSON template for headers and query parameters applied to ALL requests (refresh, test, main)<br />
+<br />Supported placeholders:<br />
+• {{$credentials.accessToken}}<br />
+• {{$credentials.refreshToken}}<br />
+<br />
+Example:<br />
+<pre>{
   "headers": {
     "User-Agent": "MyApp/1.0",
     "X-Device-Id": "device123"
   },
   "qs": { "version": "v1" }
-}`,
-			placeholder: `{"headers": {...}, "qs": {...}}`,
+}</pre>`,
+			name: 'commonRequestTemplateNotice',
+			type: 'notice',
 			default: '',
 		},
 

@@ -54,7 +54,7 @@ describe('RefreshTokenAuth', () => {
 		});
 
 		it('should have all required properties', () => {
-			expect(credential.properties).toHaveLength(12);
+			expect(credential.properties).toHaveLength(14);
 			const propertyNames = credential.properties.map((p: { name: string }) => p.name);
 			expect(propertyNames).toContain('accessToken');
 			expect(propertyNames).toContain('refreshToken');
@@ -64,7 +64,9 @@ describe('RefreshTokenAuth', () => {
 			expect(propertyNames).toContain('refreshTokenFieldName');
 			expect(propertyNames).toContain('authHeaderPrefix');
 			expect(propertyNames).toContain('refreshRequestJson');
+			expect(propertyNames).toContain('refreshRequestJsonNotice');
 			expect(propertyNames).toContain('commonRequestTemplate');
+			expect(propertyNames).toContain('commonRequestTemplateNotice');
 			expect(propertyNames).toContain('refreshTokenMode');
 			expect(propertyNames).toContain('jwtExpiryLeewaySeconds');
 			expect(propertyNames).toContain('hidden');
