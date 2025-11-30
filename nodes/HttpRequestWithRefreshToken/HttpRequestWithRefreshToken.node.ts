@@ -37,7 +37,8 @@ export class HttpRequestWithRefreshToken implements INodeType {
 		subtitle: '={{$parameter["method"] + ": " + $parameter["url"]}}',
 		description:
 			'Makes an HTTP request using RefreshTokenAuth credentials with automatic token refresh.',
-		icon: 'node:n8n-nodes-base.httpRequest',
+		// eslint-disable-next-line n8n-nodes-base/node-class-description-icon-not-svg
+		icon: 'file:refresh-token-auth.svg',
 		defaults: {
 			name: 'HTTP Request (Refresh Token Auth)',
 		},
