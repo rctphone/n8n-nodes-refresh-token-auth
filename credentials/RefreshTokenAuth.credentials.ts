@@ -361,17 +361,7 @@ Example:<br />
 	): Promise<IHttpRequestOptions> {
 		//LoggerProxy.debug('🔥🔥🔥 RefreshTokenAuth.authenticateFunc CALLED! 🔥🔥🔥');
 
-		// Build Authorization header with proper separator
-		const prefix = credentials.authHeaderPrefix || 'Bearer';
-		const separator = prefix === 'Bearer' ? ' ' : '';
-		requestOptions.headers = { Authorization: `${prefix}${separator}${credentials.accessToken}` };
-
-		// Apply SSL certificate validation skip if configured
-		if (credentials.allowUnauthorizedCerts) {
-			requestOptions.skipSslCertificateValidation = true;
-		}
-
-		// Apply common template (request fields have priority, so sourceOverrides=false)
+		// 1) Apply common template first (base headers and query params)
 		applyJsonTemplate(
 			requestOptions,
 			credentials.commonRequestTemplate as string,
@@ -379,6 +369,22 @@ Example:<br />
 			['headers', 'qs'],
 			false, // request fields override common template
 		);
+
+		// 2) Build and apply Authorization header (overrides common template if set there)
+		const prefix = credentials.authHeaderPrefix || 'Bearer';
+		const separator = prefix === 'Bearer' ? ' ' : '';
+		requestOptions.headers = {
+			...requestOptions.headers,
+			Authorization: `${prefix}${separator}${credentials.accessToken}`,
+		};
+
+		// 3) Apply SSL certificate validation skip if configured
+		// Note: n8n checks skipSslCertificateValidation === true (strict equality)
+		const allowUnauthorizedCerts =
+			credentials.allowUnauthorizedCerts === true || credentials.allowUnauthorizedCerts === 'true';
+		if (allowUnauthorizedCerts) {
+			requestOptions.skipSslCertificateValidation = true;
+		}
 
 		return requestOptions;
 	}
@@ -392,8 +398,7 @@ Example:<br />
 			baseURL: '={{$credentials.testUrl}}',
 			url: '',
 			method: 'GET',
-			skipSslCertificateValidation:
-				'={{$credentials.allowUnauthorizedCerts}}' as unknown as boolean,
+			skipSslCertificateValidation: '={{$credentials.allowUnauthorizedCerts}}',
 		},
 	};
 
@@ -436,12 +441,15 @@ Example:<br />
 		if (!shouldRefresh) return {};
 
 		// Build refresh request
-		const allowUnauthorizedCerts = credentials.allowUnauthorizedCerts as boolean;
+		// Note: n8n checks skipSslCertificateValidation === true (strict equality)
+		// so we must ensure it's exactly boolean true, not string "true" or undefined
+		const allowUnauthorizedCerts =
+			credentials.allowUnauthorizedCerts === true || credentials.allowUnauthorizedCerts === 'true';
 		const requestOptions: IHttpRequestOptions = {
 			url: credentials.refreshUrl as string,
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			skipSslCertificateValidation: allowUnauthorizedCerts,
+			skipSslCertificateValidation: allowUnauthorizedCerts === true ? true : undefined,
 		};
 
 		// 1) Apply common request template

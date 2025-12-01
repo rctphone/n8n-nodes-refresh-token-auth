@@ -450,7 +450,8 @@ describe('RefreshTokenAuth', () => {
 			await credential.preAuthentication.call(mockThis, credentialsWithoutSslSkip);
 
 			const call = mockHttpRequest.mock.calls[0][0];
-			expect(call.skipSslCertificateValidation).toBe(false);
+			// When allowUnauthorizedCerts is false, skipSslCertificateValidation is undefined (not set)
+			expect(call.skipSslCertificateValidation).toBeUndefined();
 		});
 
 		it('should NOT skip SSL validation when allowUnauthorizedCerts is not set', async () => {
