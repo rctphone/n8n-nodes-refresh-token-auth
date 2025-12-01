@@ -392,11 +392,12 @@ Example:<br />
 	/**
 	 * Test the credentials by making a request to the test URL
 	 * Supports SSL certificate validation skip when allowUnauthorizedCerts is true
+	 * Note: Using url instead of baseURL+empty url because n8n's buildTargetUrl
+	 * returns undefined for empty url, which prevents httpsAgent from being set
 	 */
 	test: ICredentialTestRequest = {
 		request: {
-			baseURL: '={{$credentials.testUrl}}',
-			url: '',
+			url: '={{$credentials.testUrl}}',
 			method: 'GET',
 			skipSslCertificateValidation: '={{$credentials.allowUnauthorizedCerts}}',
 		},

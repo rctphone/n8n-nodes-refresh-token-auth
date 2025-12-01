@@ -713,16 +713,14 @@ describe('RefreshTokenAuth', () => {
 			const testRequest = credential.test as ICredentialTestRequest;
 			expect(testRequest.request).toBeDefined();
 			expect(testRequest.request.method).toBe('GET');
-			expect(testRequest.request.baseURL).toBe('={{$credentials.testUrl}}');
-			expect(testRequest.request.url).toBe('');
+			expect(testRequest.request.url).toBe('={{$credentials.testUrl}}');
 		});
 
 		it('should have test request structure matching credentials-tester approach', () => {
 			const testRequest = credential.test as ICredentialTestRequest;
 			expect(testRequest.request).toMatchObject({
 				method: 'GET',
-				baseURL: '={{$credentials.testUrl}}',
-				url: '',
+				url: '={{$credentials.testUrl}}',
 			});
 		});
 
@@ -744,7 +742,7 @@ describe('RefreshTokenAuth', () => {
 
 			it('should have test request that uses testUrl from credentials', () => {
 				const testRequest = credential.test as ICredentialTestRequest;
-				expect(testRequest.request.baseURL).toBe('={{$credentials.testUrl}}');
+				expect(testRequest.request.url).toBe('={{$credentials.testUrl}}');
 				// This expression will be resolved by n8n to the actual testUrl value
 				// In credentials-tester, this would be resolved from mockCredentialsDecrypted.data.testUrl
 				expect(mockCredentialsDecrypted.data?.testUrl).toBe('https://api.example.com/user/profile');
@@ -752,9 +750,9 @@ describe('RefreshTokenAuth', () => {
 
 			it('should validate test request structure for credentials-tester', () => {
 				const testRequest = credential.test as ICredentialTestRequest;
-				// Credentials-tester expects request to have method, baseURL, and url
+				// Credentials-tester expects request to have method and url
+				// Note: Using url directly (not baseURL + empty url) to ensure httpsAgent is set correctly
 				expect(testRequest.request).toHaveProperty('method');
-				expect(testRequest.request).toHaveProperty('baseURL');
 				expect(testRequest.request).toHaveProperty('url');
 				// Validate that credentials structure matches what credentials-tester expects
 				expect(mockCredentialsDecrypted.type).toBe('refreshTokenAuth');

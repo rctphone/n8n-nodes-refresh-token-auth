@@ -68,8 +68,9 @@
 	"devDependencies": {
 		"@types/jest": "^29.5.14",
 		"@types/jsonwebtoken": "^9.0.7",
-		"@types/node": "^22.13.10",
+		"@types/node": "^22.18.12",
 		"@typescript-eslint/parser": "~8.46.2",
+		"axios": "^1.13.2",
 		"dotenv": "^16.4.7",
 		"eslint": "8",
 		"eslint-plugin-n8n-nodes-base": "^1.16.4",
