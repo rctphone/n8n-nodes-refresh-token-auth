@@ -54,7 +54,7 @@ describe('RefreshTokenAuth', () => {
 		});
 
 		it('should have all required properties', () => {
-			expect(credential.properties).toHaveLength(19);
+			expect(credential.properties).toHaveLength(21);
 			const propertyNames = credential.properties.map((p: { name: string }) => p.name);
 			expect(propertyNames).toContain('accessToken');
 			expect(propertyNames).toContain('refreshToken');
@@ -73,8 +73,10 @@ describe('RefreshTokenAuth', () => {
 			expect(propertyNames).toContain('expiresInFieldName');
 			expect(propertyNames).toContain('expiresInFormat');
 			expect(propertyNames).toContain('allowUnauthorizedCerts');
+			expect(propertyNames).toContain('extractCookies');
 			expect(propertyNames).toContain('hidden');
 			expect(propertyNames).toContain('expiresInUnixTimestamp');
+			expect(propertyNames).toContain('storedCookies');
 		});
 	});
 
@@ -1097,6 +1099,383 @@ describe('RefreshTokenAuth', () => {
 
 				expect(result).toHaveProperty('accessToken', newAccessToken);
 				expect(result).not.toHaveProperty('expiresInUnixTimestamp');
+			});
+		});
+	});
+
+	describe('Cookie Header Support', () => {
+		const futureTime = Math.floor(Date.now() / 1000) + 3600;
+
+		describe('Set-Cookie Extraction from Refresh Response', () => {
+			it('should extract and store single Set-Cookie header when extractCookies is enabled', async () => {
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: createJwtToken({ exp: futureTime - 7200 }), // Expired
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'always',
+					extractCookies: true,
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					body: {
+						access_token: newAccessToken,
+						refresh_token: 'new_refresh_token',
+					},
+					headers: {
+						'set-cookie': 'session_id=abc123; Path=/; HttpOnly; Secure',
+					},
+					statusCode: 200,
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(result).toHaveProperty('storedCookies', 'session_id=abc123');
+			});
+
+			it('should extract and combine multiple Set-Cookie headers when extractCookies is enabled', async () => {
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: createJwtToken({ exp: futureTime - 7200 }), // Expired
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'always',
+					extractCookies: true,
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					body: {
+						access_token: newAccessToken,
+						refresh_token: 'new_refresh_token',
+					},
+					headers: {
+						'set-cookie': [
+							'session_id=abc123; Path=/; HttpOnly',
+							'user_token=xyz789; Path=/; Secure',
+							'tracking=track001; Expires=Wed, 09 Jun 2025 10:18:14 GMT',
+						],
+					},
+					statusCode: 200,
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(result).toHaveProperty(
+					'storedCookies',
+					'session_id=abc123; user_token=xyz789; tracking=track001',
+				);
+			});
+
+			it('should handle Set-Cookie header with capital case when extractCookies is enabled', async () => {
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: createJwtToken({ exp: futureTime - 7200 }), // Expired
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'always',
+					extractCookies: true,
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					body: {
+						access_token: newAccessToken,
+						refresh_token: 'new_refresh_token',
+					},
+					headers: {
+						'Set-Cookie': 'auth_cookie=value123; Path=/',
+					},
+					statusCode: 200,
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('storedCookies', 'auth_cookie=value123');
+			});
+
+			it('should not extract cookies when extractCookies is disabled', async () => {
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: createJwtToken({ exp: futureTime - 7200 }), // Expired
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'always',
+					extractCookies: false, // Disabled
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					body: {
+						access_token: newAccessToken,
+						refresh_token: 'new_refresh_token',
+					},
+					headers: {
+						'set-cookie': 'session_id=abc123; Path=/; HttpOnly; Secure',
+					},
+					statusCode: 200,
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(result).not.toHaveProperty('storedCookies');
+			});
+
+			it('should not extract cookies when extractCookies is not set (default)', async () => {
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: createJwtToken({ exp: futureTime - 7200 }), // Expired
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'always',
+					// extractCookies not set - should default to false
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					body: {
+						access_token: newAccessToken,
+						refresh_token: 'new_refresh_token',
+					},
+					headers: {
+						'set-cookie': 'session_id=abc123; Path=/; HttpOnly; Secure',
+					},
+					statusCode: 200,
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(result).not.toHaveProperty('storedCookies');
+			});
+
+			it('should not store cookies when no Set-Cookie header in response (extractCookies enabled)', async () => {
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: createJwtToken({ exp: futureTime - 7200 }), // Expired
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'always',
+					extractCookies: true,
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					body: {
+						access_token: newAccessToken,
+						refresh_token: 'new_refresh_token',
+					},
+					headers: {
+						'content-type': 'application/json',
+					},
+					statusCode: 200,
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(result).not.toHaveProperty('storedCookies');
+			});
+
+			it('should handle response without headers object (extractCookies enabled)', async () => {
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: createJwtToken({ exp: futureTime - 7200 }), // Expired
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'always',
+					extractCookies: true,
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				// Response without headers field (simple JSON response)
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(result).not.toHaveProperty('storedCookies');
+			});
+		});
+
+		describe('Cookie Header in Requests', () => {
+			// Type helper for authenticate function
+			type AuthenticateFn = (
+				credentials: ICredentialDataDecryptedObject,
+				requestOptions: IHttpRequestOptions,
+			) => Promise<IHttpRequestOptions>;
+
+			it('should add Cookie header when storedCookies is present and extractCookies is enabled', async () => {
+				const mockCredentials: ICredentialDataDecryptedObject = {
+					accessToken: 'test_token',
+					authHeaderPrefix: 'Bearer',
+					extractCookies: true,
+					storedCookies: 'session_id=abc123; user_token=xyz789',
+				};
+				const requestOptions: IHttpRequestOptions = {
+					url: 'https://api.example.com/test',
+					method: 'GET',
+				};
+
+				const authenticate = credential.authenticate as unknown as AuthenticateFn;
+				const result = await authenticate(mockCredentials, requestOptions);
+
+				expect(result.headers).toHaveProperty('Authorization', 'Bearer test_token');
+				expect(result.headers).toHaveProperty('Cookie', 'session_id=abc123; user_token=xyz789');
+			});
+
+			it('should not add Cookie header when extractCookies is disabled even with storedCookies', async () => {
+				const mockCredentials: ICredentialDataDecryptedObject = {
+					accessToken: 'test_token',
+					authHeaderPrefix: 'Bearer',
+					extractCookies: false,
+					storedCookies: 'session_id=abc123',
+				};
+				const requestOptions: IHttpRequestOptions = {
+					url: 'https://api.example.com/test',
+					method: 'GET',
+				};
+
+				const authenticate = credential.authenticate as unknown as AuthenticateFn;
+				const result = await authenticate(mockCredentials, requestOptions);
+
+				expect(result.headers).toHaveProperty('Authorization', 'Bearer test_token');
+				expect(result.headers).not.toHaveProperty('Cookie');
+			});
+
+			it('should not add Cookie header when storedCookies is empty', async () => {
+				const mockCredentials: ICredentialDataDecryptedObject = {
+					accessToken: 'test_token',
+					authHeaderPrefix: 'Bearer',
+					extractCookies: true,
+					storedCookies: '',
+				};
+				const requestOptions: IHttpRequestOptions = {
+					url: 'https://api.example.com/test',
+					method: 'GET',
+				};
+
+				const authenticate = credential.authenticate as unknown as AuthenticateFn;
+				const result = await authenticate(mockCredentials, requestOptions);
+
+				expect(result.headers).toHaveProperty('Authorization', 'Bearer test_token');
+				expect(result.headers).not.toHaveProperty('Cookie');
+			});
+
+			it('should not add Cookie header when storedCookies is not set', async () => {
+				const mockCredentials: ICredentialDataDecryptedObject = {
+					accessToken: 'test_token',
+					authHeaderPrefix: 'Bearer',
+					extractCookies: true,
+				};
+				const requestOptions: IHttpRequestOptions = {
+					url: 'https://api.example.com/test',
+					method: 'GET',
+				};
+
+				const authenticate = credential.authenticate as unknown as AuthenticateFn;
+				const result = await authenticate(mockCredentials, requestOptions);
+
+				expect(result.headers).toHaveProperty('Authorization', 'Bearer test_token');
+				expect(result.headers).not.toHaveProperty('Cookie');
+			});
+
+			it('should preserve existing headers when adding Cookie', async () => {
+				const mockCredentials: ICredentialDataDecryptedObject = {
+					accessToken: 'test_token',
+					authHeaderPrefix: 'Bearer',
+					extractCookies: true,
+					storedCookies: 'session=abc',
+				};
+				const requestOptions: IHttpRequestOptions = {
+					url: 'https://api.example.com/test',
+					method: 'GET',
+					headers: {
+						'Content-Type': 'application/json',
+						'X-Custom-Header': 'custom-value',
+					},
+				};
+
+				const authenticate = credential.authenticate as unknown as AuthenticateFn;
+				const result = await authenticate(mockCredentials, requestOptions);
+
+				expect(result.headers).toHaveProperty('Authorization', 'Bearer test_token');
+				expect(result.headers).toHaveProperty('Cookie', 'session=abc');
+				expect(result.headers).toHaveProperty('Content-Type', 'application/json');
+				expect(result.headers).toHaveProperty('X-Custom-Header', 'custom-value');
+			});
+
+			it('should append storedCookies to existing Cookie header without replacing', async () => {
+				const mockCredentials: ICredentialDataDecryptedObject = {
+					accessToken: 'test_token',
+					authHeaderPrefix: 'Bearer',
+					extractCookies: true,
+					storedCookies: 'refresh_session=xyz789',
+				};
+				const requestOptions: IHttpRequestOptions = {
+					url: 'https://api.example.com/test',
+					method: 'GET',
+					headers: {
+						'Content-Type': 'application/json',
+						Cookie: 'existing_cookie=value123; another_cookie=abc',
+					},
+				};
+
+				const authenticate = credential.authenticate as unknown as AuthenticateFn;
+				const result = await authenticate(mockCredentials, requestOptions);
+
+				expect(result.headers).toHaveProperty('Authorization', 'Bearer test_token');
+				// Should merge existing Cookie with stored cookies
+				expect(result.headers).toHaveProperty(
+					'Cookie',
+					'existing_cookie=value123; another_cookie=abc; refresh_session=xyz789',
+				);
+				expect(result.headers).toHaveProperty('Content-Type', 'application/json');
+			});
+
+			it('should append multiple storedCookies to existing Cookie header', async () => {
+				const mockCredentials: ICredentialDataDecryptedObject = {
+					accessToken: 'test_token',
+					authHeaderPrefix: 'Bearer',
+					extractCookies: true,
+					storedCookies: 'session=abc; user_token=xyz',
+				};
+				const requestOptions: IHttpRequestOptions = {
+					url: 'https://api.example.com/test',
+					method: 'GET',
+					headers: {
+						Cookie: 'existing=value',
+					},
+				};
+
+				const authenticate = credential.authenticate as unknown as AuthenticateFn;
+				const result = await authenticate(mockCredentials, requestOptions);
+
+				expect(result.headers).toHaveProperty(
+					'Cookie',
+					'existing=value; session=abc; user_token=xyz',
+				);
 			});
 		});
 	});

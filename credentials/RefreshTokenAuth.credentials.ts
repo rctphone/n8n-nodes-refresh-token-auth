@@ -492,6 +492,14 @@ Example:<br />
 				'Whether to skip SSL certificate validation for refresh and test requests (use with caution)',
 		},
 		{
+			displayName: 'Extract Cookies from Refresh Response',
+			name: 'extractCookies',
+			type: 'boolean',
+			default: false,
+			description:
+				'Whether to extract Set-Cookie headers from refresh response and include them in subsequent requests',
+		},
+		{
 			displayName: 'Hidden Field for Refreshing Logics',
 			name: 'hidden',
 			type: 'hidden',
@@ -500,6 +508,15 @@ Example:<br />
 			placeholder: '',
 			description:
 				'Hidden field needed for refreshing logics, preAuth should return empty string to run again, do not remove!!!',
+		},
+		{
+			displayName: 'Hidden Field for Stored Cookies',
+			name: 'storedCookies',
+			type: 'hidden',
+			default: '',
+			placeholder: '',
+			description:
+				'Hidden field to store cookies from Set-Cookie header received during refresh token request',
 		},
 	];
 
@@ -544,7 +561,20 @@ Example:<br />
 			Authorization: `${prefix}${separator}${credentials.accessToken}`,
 		};
 
-		// 3) Apply SSL certificate validation skip if configured
+		// 3) Add stored cookies from refresh response if available and extraction is enabled
+		const extractCookies = credentials.extractCookies === true;
+		const storedCookies = credentials.storedCookies as string;
+		if (extractCookies && storedCookies) {
+			const existingCookie = requestOptions.headers?.Cookie as string | undefined;
+			// Merge existing Cookie header with stored cookies (don't replace)
+			const mergedCookies = existingCookie ? `${existingCookie}; ${storedCookies}` : storedCookies;
+			requestOptions.headers = {
+				...requestOptions.headers,
+				Cookie: mergedCookies,
+			};
+		}
+
+		// 4) Apply SSL certificate validation skip if configured
 		// Note: n8n checks skipSslCertificateValidation === true (strict equality)
 		const allowUnauthorizedCerts =
 			credentials.allowUnauthorizedCerts === true || credentials.allowUnauthorizedCerts === 'true';
@@ -659,13 +689,20 @@ Example:<br />
 		// Deep merge object fields (headers, body, qs)
 		mergeObjectFields(requestOptions, auth, objectFieldsToMerge);
 
+		// Request full response to access headers (for Set-Cookie)
+		requestOptions.returnFullResponse = true;
+
 		// 3) Execute refresh request and extract tokens
 		try {
-			const response = await this.helpers.httpRequest(requestOptions);
+			const fullResponse = await this.helpers.httpRequest(requestOptions);
+
+			// Extract headers from full response (body is accessed via getNestedValue which handles body wrapper)
+			const responseHeaders = fullResponse.headers || {};
+
 			const accessTokenField = (credentials.accessTokenFieldName as string) || 'access_token';
 			const refreshTokenField = (credentials.refreshTokenFieldName as string) || 'refresh_token';
 
-			const newAccessToken = getNestedValue(response, accessTokenField);
+			const newAccessToken = getNestedValue(fullResponse, accessTokenField);
 			if (!newAccessToken) throw new Error('Access token not found in response');
 
 			// Extract and convert expires_in if configured to use refresh response
@@ -674,7 +711,7 @@ Example:<br />
 			if (refreshTokenMode === 'onJwtExpiry' && expiresInSource === 'refreshResponse') {
 				const expiresInFieldName = (credentials.expiresInFieldName as string) || 'expires_in';
 				const expiresInFormat = (credentials.expiresInFormat as string) || 'seconds';
-				const expiresInValue = extractExpiresIn(response, expiresInFieldName);
+				const expiresInValue = extractExpiresIn(fullResponse, expiresInFieldName);
 				const expiresInTimestamp = convertExpiresInToUnixTimestamp(expiresInValue, expiresInFormat);
 				if (expiresInTimestamp !== undefined) {
 					// Store as Unix timestamp string (seconds)
@@ -682,15 +719,35 @@ Example:<br />
 				}
 			}
 
+			// Extract Set-Cookie header if cookie extraction is enabled
+			const extractCookies = credentials.extractCookies === true;
+			let storedCookies: string | undefined;
+			if (extractCookies) {
+				const setCookieHeader = responseHeaders['set-cookie'] || responseHeaders['Set-Cookie'];
+				if (setCookieHeader) {
+					// Set-Cookie can be a string or array of strings
+					const cookieArray = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
+					// Extract cookie name=value pairs (without attributes like Path, Expires, etc.)
+					storedCookies = cookieArray
+						.map((cookie: string) => cookie.split(';')[0].trim())
+						.join('; ');
+				}
+			}
+
 			const result: IDataObject = {
 				accessToken: newAccessToken,
-				refreshToken: getNestedValue(response, refreshTokenField) || credentials.refreshToken,
+				refreshToken: getNestedValue(fullResponse, refreshTokenField) || credentials.refreshToken,
 				hidden: '', //please keep it as empty to always run preAuth again
 			};
 
 			// Store expires_in timestamp if extracted
 			if (expiresInUnixTimestamp !== undefined) {
 				result.expiresInUnixTimestamp = expiresInUnixTimestamp;
+			}
+
+			// Store cookies if received from Set-Cookie header and extraction is enabled
+			if (storedCookies) {
+				result.storedCookies = storedCookies;
 			}
 
 			return result;
