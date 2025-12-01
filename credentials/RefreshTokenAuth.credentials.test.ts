@@ -202,6 +202,66 @@ describe('RefreshTokenAuth', () => {
 			});
 		});
 
+		it('should extract tokens from full response structure with body wrapper', async () => {
+			// Some APIs or n8n configurations return full response with body/headers/statusCode
+			const newAccessToken = createJwtToken();
+			const fullResponseData = {
+				body: {
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token_from_body',
+					expires_in: 900,
+					token_type: 'Bearer',
+				},
+				headers: {
+					'content-type': 'application/json;charset=utf-8',
+					date: 'Mon, 01 Dec 2025 11:52:16 GMT',
+				},
+				statusCode: 200,
+				statusMessage: 'OK',
+			};
+
+			mockHttpRequest.mockResolvedValueOnce(fullResponseData);
+
+			const result = await credential.preAuthentication.call(mockThis, mockCredentials);
+
+			expect(result).toEqual({
+				accessToken: newAccessToken,
+				refreshToken: 'new_refresh_token_from_body',
+				hidden: '',
+			});
+		});
+
+		it('should extract tokens from full response with nested path in body', async () => {
+			// Test nested path like "data.token" when response has body wrapper
+			const credentialsWithNestedPath = {
+				...mockCredentials,
+				accessTokenFieldName: 'data.token',
+				refreshTokenFieldName: 'data.refresh',
+			};
+
+			const newAccessToken = createJwtToken();
+			const fullResponseData = {
+				body: {
+					data: {
+						token: newAccessToken,
+						refresh: 'nested_refresh_token',
+					},
+				},
+				headers: {},
+				statusCode: 200,
+			};
+
+			mockHttpRequest.mockResolvedValueOnce(fullResponseData);
+
+			const result = await credential.preAuthentication.call(mockThis, credentialsWithNestedPath);
+
+			expect(result).toEqual({
+				accessToken: newAccessToken,
+				refreshToken: 'nested_refresh_token',
+				hidden: '',
+			});
+		});
+
 		it('should throw error when access token is not found in response', async () => {
 			const mockResponseData = {
 				// Missing access_token
@@ -305,7 +365,7 @@ describe('RefreshTokenAuth', () => {
 			expect(mockHttpRequest).toHaveBeenCalled();
 		});
 
-		it('should throw error when refresh returns non-JWT access token', async () => {
+		it('should accept non-JWT access token from refresh response', async () => {
 			const credentials: ICredentialDataDecryptedObject = {
 				accessToken: 'not-a-jwt',
 				refreshToken: 'refresh_token',
@@ -316,17 +376,22 @@ describe('RefreshTokenAuth', () => {
 				refreshTokenMode: 'onJwtExpiry', // Will try to refresh invalid token
 			};
 
-			// Mock refresh to return non-JWT token
+			// Mock refresh to return non-JWT token (should be accepted)
 			const mockResponseData = {
-				access_token: 'still-not-a-jwt',
+				access_token: 'opaque-token-12345',
 				refresh_token: 'new_refresh_token',
 			};
 
 			mockHttpRequest.mockResolvedValueOnce(mockResponseData);
 
-			await expect(credential.preAuthentication.call(mockThis, credentials)).rejects.toThrow(
-				'Access token must be a valid JWT token',
-			);
+			const result = await credential.preAuthentication.call(mockThis, credentials);
+
+			// Non-JWT tokens are now allowed
+			expect(result).toEqual({
+				accessToken: 'opaque-token-12345',
+				refreshToken: 'new_refresh_token',
+				hidden: '',
+			});
 		});
 
 		it('should throw error when token refresh fails', async () => {

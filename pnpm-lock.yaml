@@ -39,6 +39,9 @@ importers:
       gulp:
         specifier: ^5.0.0
         version: 5.0.1
+      https-proxy-agent:
+        specifier: ^7.0.6
+        version: 7.0.6
       jest:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@22.18.12)

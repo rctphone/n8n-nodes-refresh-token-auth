@@ -5,7 +5,6 @@ import {
 	ICredentialDataDecryptedObject,
 	IHttpRequestHelper,
 	IHttpRequestOptions,
-	IHttpRequestMethods,
 	Icon,
 	jsonParse,
 	IDataObject,
@@ -14,17 +13,36 @@ import {
 
 import jwt from 'jsonwebtoken';
 
-const JWT_VALIDATION_ERROR = 'Access token must be a valid JWT token';
-
-/** Get nested value from object using dot notation (e.g., "data.token") */
+/**
+ * Get nested value from object using dot notation (e.g., "data.token")
+ * Also searches in common wrapper paths (body., data., response.) if direct path not found
+ */
 function getNestedValue(obj: any, path: string): any {
 	if (!path || !obj) return undefined;
-	return path
-		.split('.')
-		.reduce(
+
+	// Helper to traverse object by dot-notation path
+	const traverse = (target: any, keys: string[]): any =>
+		keys.reduce(
 			(curr, key) => (curr && typeof curr === 'object' && key in curr ? curr[key] : undefined),
-			obj,
+			target,
 		);
+
+	const keys = path.split('.');
+
+	// 1) Try exact path first
+	const directValue = traverse(obj, keys);
+	if (directValue !== undefined) return directValue;
+
+	// 2) Try common wrapper prefixes if direct path not found
+	const commonPrefixes = ['body', 'data', 'response'];
+	for (const prefix of commonPrefixes) {
+		if (obj[prefix] && typeof obj[prefix] === 'object') {
+			const prefixedValue = traverse(obj[prefix], keys);
+			if (prefixedValue !== undefined) return prefixedValue;
+		}
+	}
+
+	return undefined;
 }
 
 /** Replace {{$credentials.accessToken}} and {{$credentials.refreshToken}} placeholders */
@@ -80,12 +98,13 @@ function applyJsonTemplate(
 }
 
 /**
- * Validate JWT format and return payload as IDataObject for further processing.
- * Uses jsonwebtoken library to decode and validate JWT structure.
+ * Try to parse JWT and return payload as IDataObject.
+ * Returns null if token is not a valid JWT (non-JWT tokens are allowed).
+ * Uses jsonwebtoken library to decode JWT structure.
  */
-function validateAndParseJwtPayload(token: unknown): IDataObject {
+function tryParseJwtPayload(token: unknown): IDataObject | null {
 	if (typeof token !== 'string' || token.trim() === '') {
-		throw new Error(JWT_VALIDATION_ERROR);
+		return null;
 	}
 
 	try {
@@ -93,12 +112,12 @@ function validateAndParseJwtPayload(token: unknown): IDataObject {
 		const decoded = jwt.decode(token, { complete: true });
 
 		if (!decoded || typeof decoded === 'string' || !decoded.payload) {
-			throw new Error(JWT_VALIDATION_ERROR);
+			return null; // Not a valid JWT, but that's okay
 		}
 
 		return decoded.payload as IDataObject;
-	} catch (error) {
-		throw new Error(JWT_VALIDATION_ERROR);
+	} catch {
+		return null; // Not a JWT token
 	}
 }
 
@@ -425,15 +444,13 @@ Example:<br />
 					return false; // Handled elsewhere or disabled
 				case 'always':
 					return true;
-				case 'onJwtExpiry':
-					try {
-						const payload = validateAndParseJwtPayload(accessToken);
-						const exp = payload.exp as number;
-						if (!exp) return true; // No exp claim - refresh to be safe
-						return exp - Math.floor(Date.now() / 1000) <= jwtExpiryLeewaySeconds;
-					} catch {
-						return true; // Invalid JWT - refresh to get new token
-					}
+				case 'onJwtExpiry': {
+					const payload = tryParseJwtPayload(accessToken);
+					if (!payload) return true; // Not a JWT or invalid - refresh to be safe
+					const exp = payload.exp as number;
+					if (!exp) return true; // No exp claim - refresh to be safe
+					return exp - Math.floor(Date.now() / 1000) <= jwtExpiryLeewaySeconds;
+				}
 				default:
 					return false;
 			}
@@ -469,8 +486,15 @@ Example:<br />
 			credentials,
 		) as IDataObject;
 
-		if (auth.method) requestOptions.method = auth.method as IHttpRequestMethods;
-		mergeObjectFields(requestOptions, auth, ['headers', 'body', 'qs']);
+		// Copy all simple fields from auth to requestOptions (proxy, returnFullResponse, timeout, etc.)
+		const objectFieldsToMerge = ['headers', 'body', 'qs'];
+		for (const key of Object.keys(auth)) {
+			if (!objectFieldsToMerge.includes(key)) {
+				(requestOptions as unknown as IDataObject)[key] = auth[key];
+			}
+		}
+		// Deep merge object fields (headers, body, qs)
+		mergeObjectFields(requestOptions, auth, objectFieldsToMerge);
 
 		// 3) Execute refresh request and extract tokens
 		try {
@@ -481,15 +505,53 @@ Example:<br />
 			const newAccessToken = getNestedValue(response, accessTokenField);
 			if (!newAccessToken) throw new Error('Access token not found in response');
 
-			validateAndParseJwtPayload(newAccessToken); // Validate JWT format
-
 			return {
 				accessToken: newAccessToken,
 				refreshToken: getNestedValue(response, refreshTokenField) || credentials.refreshToken,
 				hidden: '', //please keep it as empty to always run preAuth again
 			};
 		} catch (error: any) {
-			throw new Error(`Token refresh failed: ${error.message}`);
+			// Build detailed error message with request and response info
+			const errorLines: string[] = [`Token refresh failed: ${error.message}`];
+
+			// Extract request info from Axios config (cleaner than http.ClientRequest)
+			const axiosConfig = error.config;
+			const method = axiosConfig?.method?.toUpperCase() || requestOptions.method;
+			const url = error.request?._redirectable?._currentUrl || axiosConfig?.url;
+			errorLines.push(`Request: ${method} ${url}`);
+
+			// Add request headers from Axios config (mask sensitive data)
+			const configHeaders = axiosConfig?.headers;
+			if (configHeaders) {
+				const headers = { ...configHeaders };
+				// Mask sensitive headers
+				if (headers.Authorization) headers.Authorization = '[MASKED]';
+				if (headers.authorization) headers.authorization = '[MASKED]';
+				errorLines.push(`Request headers: ${JSON.stringify(headers)}`);
+			}
+
+			// Add response info if available
+			if (error.response) {
+				const status = error.response.status || error.response.statusCode;
+				const statusText = error.response.statusText || error.response.statusMessage || '';
+				errorLines.push(`Response: ${status} ${statusText}`);
+
+				// Add response body (truncated if too long)
+				const responseBody = error.response.body || error.response.data;
+				if (responseBody) {
+					const bodyStr =
+						typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody);
+					const truncatedBody = bodyStr.length > 500 ? bodyStr.substring(0, 500) + '...' : bodyStr;
+					errorLines.push(`Response body: ${truncatedBody}`);
+				}
+			}
+
+			// Add error code if available (e.g., CERT_HAS_EXPIRED, ECONNREFUSED)
+			if (error.code) {
+				errorLines.push(`Error code: ${error.code}`);
+			}
+
+			throw new Error(errorLines.join(' | '));
 		}
 	}
 }
