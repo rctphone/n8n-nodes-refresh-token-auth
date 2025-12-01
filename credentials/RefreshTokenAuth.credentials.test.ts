@@ -490,6 +490,50 @@ describe('RefreshTokenAuth', () => {
 				'={{$credentials.allowUnauthorizedCerts}}',
 			);
 		});
+
+		it('should apply SSL skip to authenticateFunc when allowUnauthorizedCerts is true', async () => {
+			const credentials: ICredentialDataDecryptedObject = {
+				accessToken: 'test-token',
+				authHeaderPrefix: 'Bearer',
+				allowUnauthorizedCerts: true,
+			};
+			const requestOptions: IHttpRequestOptions = {
+				url: 'https://api.example.com/data',
+				method: 'GET',
+			};
+
+			type AuthenticateFn = (
+				credentials: ICredentialDataDecryptedObject,
+				requestOptions: IHttpRequestOptions,
+			) => Promise<IHttpRequestOptions>;
+
+			const authenticate = credential.authenticate as unknown as AuthenticateFn;
+			const result = await authenticate(credentials, requestOptions);
+
+			expect(result.skipSslCertificateValidation).toBe(true);
+		});
+
+		it('should NOT apply SSL skip to authenticateFunc when allowUnauthorizedCerts is false', async () => {
+			const credentials: ICredentialDataDecryptedObject = {
+				accessToken: 'test-token',
+				authHeaderPrefix: 'Bearer',
+				allowUnauthorizedCerts: false,
+			};
+			const requestOptions: IHttpRequestOptions = {
+				url: 'https://api.example.com/data',
+				method: 'GET',
+			};
+
+			type AuthenticateFn = (
+				credentials: ICredentialDataDecryptedObject,
+				requestOptions: IHttpRequestOptions,
+			) => Promise<IHttpRequestOptions>;
+
+			const authenticate = credential.authenticate as unknown as AuthenticateFn;
+			const result = await authenticate(credentials, requestOptions);
+
+			expect(result.skipSslCertificateValidation).toBeUndefined();
+		});
 	});
 
 	describe('Refresh Token Modes', () => {

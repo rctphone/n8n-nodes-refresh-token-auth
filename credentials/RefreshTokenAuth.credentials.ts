@@ -353,6 +353,7 @@ Example:<br />
 	/**
 	 * Authenticate requests by adding Bearer token to Authorization header
 	 * Also applies common request template (headers and query params) to all requests
+	 * Supports SSL certificate validation skip when allowUnauthorizedCerts is true
 	 */
 	async authenticateFunc(
 		credentials: ICredentialDataDecryptedObject,
@@ -364,6 +365,11 @@ Example:<br />
 		const prefix = credentials.authHeaderPrefix || 'Bearer';
 		const separator = prefix === 'Bearer' ? ' ' : '';
 		requestOptions.headers = { Authorization: `${prefix}${separator}${credentials.accessToken}` };
+
+		// Apply SSL certificate validation skip if configured
+		if (credentials.allowUnauthorizedCerts) {
+			requestOptions.skipSslCertificateValidation = true;
+		}
 
 		// Apply common template (request fields have priority, so sourceOverrides=false)
 		applyJsonTemplate(
