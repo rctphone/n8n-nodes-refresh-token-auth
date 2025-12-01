@@ -54,7 +54,7 @@ describe('RefreshTokenAuth', () => {
 		});
 
 		it('should have all required properties', () => {
-			expect(credential.properties).toHaveLength(15);
+			expect(credential.properties).toHaveLength(19);
 			const propertyNames = credential.properties.map((p: { name: string }) => p.name);
 			expect(propertyNames).toContain('accessToken');
 			expect(propertyNames).toContain('refreshToken');
@@ -69,8 +69,12 @@ describe('RefreshTokenAuth', () => {
 			expect(propertyNames).toContain('commonRequestTemplateNotice');
 			expect(propertyNames).toContain('refreshTokenMode');
 			expect(propertyNames).toContain('jwtExpiryLeewaySeconds');
+			expect(propertyNames).toContain('expiresInSource');
+			expect(propertyNames).toContain('expiresInFieldName');
+			expect(propertyNames).toContain('expiresInFormat');
 			expect(propertyNames).toContain('allowUnauthorizedCerts');
 			expect(propertyNames).toContain('hidden');
+			expect(propertyNames).toContain('expiresInUnixTimestamp');
 		});
 	});
 
@@ -710,6 +714,390 @@ describe('RefreshTokenAuth', () => {
 
 			expect(result).toEqual({});
 			expect(mockHttpRequest).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('Expiration Source Variants', () => {
+		const futureTime = Math.floor(Date.now() / 1000) + 3600;
+		const pastTime = Math.floor(Date.now() / 1000) - 3600;
+
+		describe('JWT Token Source (default)', () => {
+			it('should use JWT exp claim when expiresInSource is "jwt"', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'jwt',
+					jwtExpiryLeewaySeconds: 60,
+				};
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toEqual({});
+				expect(mockHttpRequest).not.toHaveBeenCalled();
+			});
+
+			it('should refresh when JWT token is expired with expiresInSource "jwt"', async () => {
+				const expiredToken = createJwtToken({ exp: pastTime });
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: expiredToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'jwt',
+					jwtExpiryLeewaySeconds: 60,
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(mockHttpRequest).toHaveBeenCalled();
+			});
+		});
+
+		describe('Refresh Response Source', () => {
+			it('should refresh when no stored expiration (first request)', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'refreshResponse',
+					expiresInFieldName: 'expires_in',
+					expiresInFormat: 'seconds',
+					jwtExpiryLeewaySeconds: 60,
+					expiresInUnixTimestamp: '', // No stored expiration
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+					expires_in: 3600, // 1 hour in seconds
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(result).toHaveProperty('expiresInUnixTimestamp');
+				// expiresInUnixTimestamp should be a Unix timestamp string (seconds)
+				expect(typeof result.expiresInUnixTimestamp).toBe('string');
+				const storedTimestamp = parseInt(result.expiresInUnixTimestamp as string, 10);
+				expect(storedTimestamp).toBeGreaterThan(Math.floor(Date.now() / 1000));
+				expect(mockHttpRequest).toHaveBeenCalled();
+			});
+
+			it('should not refresh when stored expiration is in the future', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				// Unix timestamp string for future (1 hour from now)
+				const futureTimestamp = (futureTime + 3600).toString();
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'refreshResponse',
+					expiresInFieldName: 'expires_in',
+					expiresInFormat: 'seconds',
+					jwtExpiryLeewaySeconds: 60,
+					expiresInUnixTimestamp: futureTimestamp, // Valid stored expiration
+				};
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toEqual({});
+				expect(mockHttpRequest).not.toHaveBeenCalled();
+			});
+
+			it('should refresh when stored expiration is in the past', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				// Unix timestamp string for past
+				const pastTimestamp = pastTime.toString();
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'refreshResponse',
+					expiresInFieldName: 'expires_in',
+					expiresInFormat: 'seconds',
+					jwtExpiryLeewaySeconds: 60,
+					expiresInUnixTimestamp: pastTimestamp, // Expired stored expiration
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+					expires_in: 3600,
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(mockHttpRequest).toHaveBeenCalled();
+			});
+
+			it('should refresh when stored expiration is within leeway period', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				// Unix timestamp string for timestamp within leeway (30 seconds from now, leeway is 60)
+				const withinLeewayTime = Math.floor(Date.now() / 1000) + 30;
+				const withinLeewayTimestamp = withinLeewayTime.toString();
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'refreshResponse',
+					expiresInFieldName: 'expires_in',
+					expiresInFormat: 'seconds',
+					jwtExpiryLeewaySeconds: 60,
+					expiresInUnixTimestamp: withinLeewayTimestamp, // Within leeway
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+					expires_in: 3600,
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(mockHttpRequest).toHaveBeenCalled();
+			});
+		});
+
+		describe('Expires In Formats', () => {
+			const baseCredentials: ICredentialDataDecryptedObject = {
+				accessToken: createJwtToken({ exp: futureTime }),
+				refreshToken: 'refresh_token',
+				refreshUrl: 'https://api.example.com/auth/refresh',
+				testUrl: 'https://api.example.com/user/profile',
+				refreshTokenMode: 'onJwtExpiry',
+				expiresInSource: 'refreshResponse',
+				expiresInFieldName: 'expires_in',
+				jwtExpiryLeewaySeconds: 60,
+				expiresInUnixTimestamp: '', // Force refresh
+				accessTokenFieldName: 'access_token',
+				refreshTokenFieldName: 'refresh_token',
+			};
+
+			it('should handle expires_in in seconds (relative)', async () => {
+				const credentials = { ...baseCredentials, expiresInFormat: 'seconds' };
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+					expires_in: 3600, // 1 hour in seconds
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('expiresInUnixTimestamp');
+				// Unix timestamp string (seconds) - parse and convert to milliseconds for comparison
+				const storedTimestamp = parseInt(result.expiresInUnixTimestamp as string, 10);
+				const expectedMinTime = Math.floor(Date.now() / 1000) + 3500; // Allow some tolerance
+				const expectedMaxTime = Math.floor(Date.now() / 1000) + 3700;
+				expect(storedTimestamp).toBeGreaterThan(expectedMinTime);
+				expect(storedTimestamp).toBeLessThan(expectedMaxTime);
+			});
+
+			it('should handle expires_in in milliseconds (relative)', async () => {
+				const credentials = { ...baseCredentials, expiresInFormat: 'milliseconds' };
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+					expires_in: 3600000, // 1 hour in milliseconds
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('expiresInUnixTimestamp');
+				const storedTimestamp = parseInt(result.expiresInUnixTimestamp as string, 10);
+				const expectedMinTime = Math.floor(Date.now() / 1000) + 3500;
+				const expectedMaxTime = Math.floor(Date.now() / 1000) + 3700;
+				expect(storedTimestamp).toBeGreaterThan(expectedMinTime);
+				expect(storedTimestamp).toBeLessThan(expectedMaxTime);
+			});
+
+			it('should handle expires_in in microseconds (relative)', async () => {
+				const credentials = { ...baseCredentials, expiresInFormat: 'microseconds' };
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+					expires_in: 3600000000, // 1 hour in microseconds
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('expiresInUnixTimestamp');
+				const storedTimestamp = parseInt(result.expiresInUnixTimestamp as string, 10);
+				const expectedMinTime = Math.floor(Date.now() / 1000) + 3500;
+				const expectedMaxTime = Math.floor(Date.now() / 1000) + 3700;
+				expect(storedTimestamp).toBeGreaterThan(expectedMinTime);
+				expect(storedTimestamp).toBeLessThan(expectedMaxTime);
+			});
+
+			it('should handle expires_in as Unix timestamp in seconds (absolute)', async () => {
+				const credentials = { ...baseCredentials, expiresInFormat: 'unix-seconds' };
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				const absoluteTimestamp = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+					expires_in: absoluteTimestamp,
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('expiresInUnixTimestamp');
+				const storedTimestamp = parseInt(result.expiresInUnixTimestamp as string, 10);
+				// Should be within 5 seconds of the absolute timestamp
+				expect(Math.abs(storedTimestamp - absoluteTimestamp)).toBeLessThan(5);
+			});
+
+			it('should handle expires_in as Unix timestamp in milliseconds (absolute)', async () => {
+				const credentials = { ...baseCredentials, expiresInFormat: 'unix-milliseconds' };
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				const absoluteTimestamp = Date.now() + 3600000; // 1 hour from now in ms
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+					expires_in: absoluteTimestamp,
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('expiresInUnixTimestamp');
+				const storedTimestamp = parseInt(result.expiresInUnixTimestamp as string, 10);
+				// Should be within 5 seconds of the absolute timestamp (converted to seconds)
+				const absoluteTimestampSeconds = Math.floor(absoluteTimestamp / 1000);
+				expect(Math.abs(storedTimestamp - absoluteTimestampSeconds)).toBeLessThan(5);
+			});
+		});
+
+		describe('Expires In Field Name with Dot Notation', () => {
+			it('should extract expires_in from nested field using dot notation', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'refreshResponse',
+					expiresInFieldName: 'data.expires_in', // Nested field
+					expiresInFormat: 'seconds',
+					jwtExpiryLeewaySeconds: 60,
+					expiresInUnixTimestamp: '',
+					accessTokenFieldName: 'data.access_token',
+					refreshTokenFieldName: 'data.refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					data: {
+						access_token: newAccessToken,
+						refresh_token: 'new_refresh_token',
+						expires_in: 7200, // 2 hours
+					},
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(result).toHaveProperty('expiresInUnixTimestamp');
+				const storedTimestamp = parseInt(result.expiresInUnixTimestamp as string, 10);
+				const expectedMinTime = Math.floor(Date.now() / 1000) + 7100;
+				const expectedMaxTime = Math.floor(Date.now() / 1000) + 7300;
+				expect(storedTimestamp).toBeGreaterThan(expectedMinTime);
+				expect(storedTimestamp).toBeLessThan(expectedMaxTime);
+			});
+
+			it('should handle string expires_in value from response', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'refreshResponse',
+					expiresInFieldName: 'expires_in',
+					expiresInFormat: 'seconds',
+					jwtExpiryLeewaySeconds: 60,
+					expiresInUnixTimestamp: '',
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+					expires_in: '3600', // String value instead of number
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('expiresInUnixTimestamp');
+				const storedTimestamp = parseInt(result.expiresInUnixTimestamp as string, 10);
+				expect(storedTimestamp).toBeGreaterThan(Math.floor(Date.now() / 1000));
+			});
+
+			it('should not store expiresInUnixTimestamp when expiresInSource is "jwt"', async () => {
+				const expiredToken = createJwtToken({ exp: pastTime });
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: expiredToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'jwt', // Using JWT source
+					jwtExpiryLeewaySeconds: 60,
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+					expires_in: 3600, // This should be ignored when source is "jwt"
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(result).not.toHaveProperty('expiresInUnixTimestamp');
+			});
 		});
 	});
 

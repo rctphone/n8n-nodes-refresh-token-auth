@@ -121,6 +121,55 @@ function tryParseJwtPayload(token: unknown): IDataObject | null {
 	}
 }
 
+/**
+ * Extract expires_in value from refresh response using dot notation
+ * Returns undefined if field not found
+ */
+function extractExpiresIn(response: any, fieldName: string | undefined): number | undefined {
+	if (!fieldName) return undefined;
+	const value = getNestedValue(response, fieldName);
+	if (value === undefined || value === null) return undefined;
+	// Convert to number if it's a string
+	const numValue = typeof value === 'string' ? parseFloat(value) : Number(value);
+	return isNaN(numValue) ? undefined : numValue;
+}
+
+/**
+ * Convert expires_in value to Unix timestamp (seconds) based on format
+ * Returns undefined if conversion fails
+ */
+function convertExpiresInToUnixTimestamp(
+	expiresIn: number | undefined,
+	format: string | undefined,
+): number | undefined {
+	if (expiresIn === undefined || expiresIn === null) return undefined;
+	if (isNaN(expiresIn)) return undefined;
+
+	const now = Date.now(); // milliseconds
+	const nowSeconds = Math.floor(now / 1000);
+
+	switch (format) {
+		case 'seconds':
+			// Relative time in seconds: add to current time
+			return nowSeconds + Math.floor(expiresIn);
+		case 'milliseconds':
+			// Relative time in milliseconds: convert to seconds and add
+			return nowSeconds + Math.floor(expiresIn / 1000);
+		case 'microseconds':
+			// Relative time in microseconds: convert to seconds and add
+			return nowSeconds + Math.floor(expiresIn / 1000000);
+		case 'unix-seconds':
+			// Absolute Unix timestamp in seconds
+			return Math.floor(expiresIn);
+		case 'unix-milliseconds':
+			// Absolute Unix timestamp in milliseconds: convert to seconds
+			return Math.floor(expiresIn / 1000);
+		default:
+			// Default to relative seconds
+			return nowSeconds + Math.floor(expiresIn);
+	}
+}
+
 // eslint-disable-next-line n8n-nodes-base/cred-class-field-display-name-missing-api, n8n-nodes-base/cred-class-name-unsuffixed
 export class RefreshTokenAuth implements ICredentialType {
 	/**
@@ -179,6 +228,24 @@ export class RefreshTokenAuth implements ICredentialType {
 			description: 'Current access token (Bearer token) used for API authentication',
 		},
 		{
+			displayName: 'Expires In Timestamp',
+			name: 'expiresInUnixTimestamp',
+			type: 'hidden',
+			displayOptions: {
+				show: {
+					refreshTokenMode: ['onJwtExpiry'],
+				},
+			},
+			disabledOptions: {
+				hide: {
+					refreshTokenMode: ['onJwtExpiry'],
+				},
+			},
+			default: '',
+			description:
+				'Expiration timestamp (Unix seconds) from refresh response, used when Expiration Source is "From Refresh Response". This field is automatically updated and should not be edited manually.',
+		},
+		{
 			displayName: 'Refresh Token Mode',
 			name: 'refreshTokenMode',
 			type: 'options',
@@ -207,6 +274,86 @@ export class RefreshTokenAuth implements ICredentialType {
 				},
 			],
 		},
+		{
+			displayName: 'Expiration Source',
+			name: 'expiresInSource',
+			type: 'options',
+			default: 'jwt',
+			description: 'Source for token expiration time (only used with "On JWT Expiry" mode)',
+			displayOptions: {
+				show: {
+					refreshTokenMode: ['onJwtExpiry'],
+				},
+			},
+			options: [
+				{
+					name: 'From JWT Token',
+					value: 'jwt',
+					description: 'Extract expiration from JWT token exp claim',
+				},
+				{
+					name: 'From Refresh Response',
+					value: 'refreshResponse',
+					description: 'Extract expiration from refresh response field',
+				},
+			],
+		},
+		{
+			displayName: 'Expires In Field Name',
+			name: 'expiresInFieldName',
+			type: 'string',
+			default: 'expires_in',
+			description:
+				'Field name in refresh response containing expiration time (supports dot notation, e.g., "data.expires_in")',
+			displayOptions: {
+				show: {
+					refreshTokenMode: ['onJwtExpiry'],
+					expiresInSource: ['refreshResponse'],
+				},
+			},
+		},
+		{
+			displayName: 'Expires In Format',
+			name: 'expiresInFormat',
+			type: 'options',
+			default: 'seconds',
+			description:
+				'Format of expiration time value in refresh response (only used when Expiration Source is "From Refresh Response")',
+			displayOptions: {
+				show: {
+					refreshTokenMode: ['onJwtExpiry'],
+					expiresInSource: ['refreshResponse'],
+				},
+			},
+			options: [
+				{
+					name: 'Seconds (relative)',
+					value: 'seconds',
+					description: 'Relative time in seconds from now (e.g., 3600 = 1 hour)',
+				},
+				{
+					name: 'Milliseconds (relative)',
+					value: 'milliseconds',
+					description: 'Relative time in milliseconds from now',
+				},
+				{
+					name: 'Microseconds (relative)',
+					value: 'microseconds',
+					description: 'Relative time in microseconds from now',
+				},
+				{
+					name: 'Unix Timestamp (seconds)',
+					value: 'unix-seconds',
+					description: 'Absolute Unix timestamp in seconds',
+				},
+				{
+					name: 'Unix Timestamp (milliseconds)',
+					value: 'unix-milliseconds',
+					description: 'Absolute Unix timestamp in milliseconds',
+				},
+			],
+		},
+
 		{
 			displayName: 'Refresh Token',
 			name: 'refreshToken',
@@ -435,6 +582,7 @@ Example:<br />
 		const accessToken = credentials.accessToken as string;
 		const refreshTokenMode = (credentials.refreshTokenMode as string) || 'onJwtExpiry';
 		const jwtExpiryLeewaySeconds = (credentials.jwtExpiryLeewaySeconds as number) || 60;
+		const expiresInSource = (credentials.expiresInSource as string) || 'jwt';
 
 		// Determine if refresh is needed based on mode
 		const shouldRefresh = (() => {
@@ -445,11 +593,26 @@ Example:<br />
 				case 'always':
 					return true;
 				case 'onJwtExpiry': {
-					const payload = tryParseJwtPayload(accessToken);
-					if (!payload) return true; // Not a JWT or invalid - refresh to be safe
-					const exp = payload.exp as number;
-					if (!exp) return true; // No exp claim - refresh to be safe
-					return exp - Math.floor(Date.now() / 1000) <= jwtExpiryLeewaySeconds;
+					if (expiresInSource === 'refreshResponse') {
+						// Use expires_in from refresh response (stored as Unix timestamp in seconds)
+						const storedExpiresIn = credentials.expiresInUnixTimestamp as string;
+						if (!storedExpiresIn || storedExpiresIn === '') {
+							return true; // No stored expiration - refresh to be safe
+						}
+						const expiresInTimestamp = parseInt(storedExpiresIn, 10);
+						if (isNaN(expiresInTimestamp)) {
+							return true; // Invalid stored expiration - refresh to be safe
+						}
+						const nowSeconds = Math.floor(Date.now() / 1000);
+						return expiresInTimestamp - nowSeconds <= jwtExpiryLeewaySeconds;
+					} else {
+						// Use JWT exp claim (default behavior)
+						const payload = tryParseJwtPayload(accessToken);
+						if (!payload) return true; // Not a JWT or invalid - refresh to be safe
+						const exp = payload.exp as number;
+						if (!exp) return true; // No exp claim - refresh to be safe
+						return exp - Math.floor(Date.now() / 1000) <= jwtExpiryLeewaySeconds;
+					}
 				}
 				default:
 					return false;
@@ -505,11 +668,32 @@ Example:<br />
 			const newAccessToken = getNestedValue(response, accessTokenField);
 			if (!newAccessToken) throw new Error('Access token not found in response');
 
-			return {
+			// Extract and convert expires_in if configured to use refresh response
+			const expiresInSource = (credentials.expiresInSource as string) || 'jwt';
+			let expiresInUnixTimestamp: string | undefined;
+			if (refreshTokenMode === 'onJwtExpiry' && expiresInSource === 'refreshResponse') {
+				const expiresInFieldName = (credentials.expiresInFieldName as string) || 'expires_in';
+				const expiresInFormat = (credentials.expiresInFormat as string) || 'seconds';
+				const expiresInValue = extractExpiresIn(response, expiresInFieldName);
+				const expiresInTimestamp = convertExpiresInToUnixTimestamp(expiresInValue, expiresInFormat);
+				if (expiresInTimestamp !== undefined) {
+					// Store as Unix timestamp string (seconds)
+					expiresInUnixTimestamp = expiresInTimestamp.toString();
+				}
+			}
+
+			const result: IDataObject = {
 				accessToken: newAccessToken,
 				refreshToken: getNestedValue(response, refreshTokenField) || credentials.refreshToken,
 				hidden: '', //please keep it as empty to always run preAuth again
 			};
+
+			// Store expires_in timestamp if extracted
+			if (expiresInUnixTimestamp !== undefined) {
+				result.expiresInUnixTimestamp = expiresInUnixTimestamp;
+			}
+
+			return result;
 		} catch (error: any) {
 			// Build detailed error message with request and response info
 			const errorLines: string[] = [`Token refresh failed: ${error.message}`];
