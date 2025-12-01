@@ -317,6 +317,15 @@ Example:<br />
 			},
 		},
 		{
+			displayName: 'Ignore SSL Issues (Insecure)',
+			name: 'allowUnauthorizedCerts',
+			type: 'boolean',
+			default: false,
+			// eslint-disable-next-line n8n-nodes-base/node-param-description-wrong-for-ignore-ssl-issues
+			description:
+				'Whether to skip SSL certificate validation for refresh and test requests (use with caution)',
+		},
+		{
 			displayName: 'Hidden Field for Refreshing Logics',
 			name: 'hidden',
 			type: 'hidden',
@@ -370,12 +379,15 @@ Example:<br />
 
 	/**
 	 * Test the credentials by making a request to the test URL
+	 * Supports SSL certificate validation skip when allowUnauthorizedCerts is true
 	 */
 	test: ICredentialTestRequest = {
 		request: {
 			baseURL: '={{$credentials.testUrl}}',
 			url: '',
 			method: 'GET',
+			skipSslCertificateValidation:
+				'={{$credentials.allowUnauthorizedCerts}}' as unknown as boolean,
 		},
 	};
 
@@ -418,10 +430,12 @@ Example:<br />
 		if (!shouldRefresh) return {};
 
 		// Build refresh request
+		const allowUnauthorizedCerts = credentials.allowUnauthorizedCerts as boolean;
 		const requestOptions: IHttpRequestOptions = {
 			url: credentials.refreshUrl as string,
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
+			skipSslCertificateValidation: allowUnauthorizedCerts,
 		};
 
 		// 1) Apply common request template

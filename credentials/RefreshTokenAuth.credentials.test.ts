@@ -54,7 +54,7 @@ describe('RefreshTokenAuth', () => {
 		});
 
 		it('should have all required properties', () => {
-			expect(credential.properties).toHaveLength(14);
+			expect(credential.properties).toHaveLength(15);
 			const propertyNames = credential.properties.map((p: { name: string }) => p.name);
 			expect(propertyNames).toContain('accessToken');
 			expect(propertyNames).toContain('refreshToken');
@@ -69,6 +69,7 @@ describe('RefreshTokenAuth', () => {
 			expect(propertyNames).toContain('commonRequestTemplateNotice');
 			expect(propertyNames).toContain('refreshTokenMode');
 			expect(propertyNames).toContain('jwtExpiryLeewaySeconds');
+			expect(propertyNames).toContain('allowUnauthorizedCerts');
 			expect(propertyNames).toContain('hidden');
 		});
 	});
@@ -391,6 +392,103 @@ describe('RefreshTokenAuth', () => {
 			expect(call.headers).toHaveProperty('Content-Type', 'application/x-www-form-urlencoded');
 			expect(call.body).toHaveProperty('refresh_token', 'valid_refresh_token');
 			expect(call.body).toHaveProperty('grant_type', 'refresh_token');
+		});
+	});
+
+	describe('SSL Certificate Validation Skip', () => {
+		const mockCredentials: ICredentialDataDecryptedObject = {
+			accessToken: createJwtToken(),
+			refreshToken: 'valid_refresh_token',
+			refreshUrl: 'https://api.example.com/auth/refresh',
+			testUrl: 'https://api.example.com/user/profile',
+			accessTokenFieldName: 'access_token',
+			refreshTokenFieldName: 'refresh_token',
+			authHeaderPrefix: 'Bearer',
+			refreshTokenMode: 'always',
+		};
+
+		it('should skip SSL validation when allowUnauthorizedCerts is true', async () => {
+			const credentialsWithSslSkip = {
+				...mockCredentials,
+				allowUnauthorizedCerts: true,
+				refreshRequestJson: JSON.stringify({
+					body: {
+						refresh_token: '{{$credentials.refreshToken}}',
+					},
+				}),
+			};
+
+			const newAccessToken = createJwtToken();
+			mockHttpRequest.mockResolvedValueOnce({
+				access_token: newAccessToken,
+				refresh_token: 'new_refresh_token',
+			});
+
+			await credential.preAuthentication.call(mockThis, credentialsWithSslSkip);
+
+			const call = mockHttpRequest.mock.calls[0][0];
+			expect(call.skipSslCertificateValidation).toBe(true);
+		});
+
+		it('should NOT skip SSL validation when allowUnauthorizedCerts is false', async () => {
+			const credentialsWithoutSslSkip = {
+				...mockCredentials,
+				allowUnauthorizedCerts: false,
+				refreshRequestJson: JSON.stringify({
+					body: {
+						refresh_token: '{{$credentials.refreshToken}}',
+					},
+				}),
+			};
+
+			const newAccessToken = createJwtToken();
+			mockHttpRequest.mockResolvedValueOnce({
+				access_token: newAccessToken,
+				refresh_token: 'new_refresh_token',
+			});
+
+			await credential.preAuthentication.call(mockThis, credentialsWithoutSslSkip);
+
+			const call = mockHttpRequest.mock.calls[0][0];
+			expect(call.skipSslCertificateValidation).toBe(false);
+		});
+
+		it('should NOT skip SSL validation when allowUnauthorizedCerts is not set', async () => {
+			const credentialsWithoutSslOption = {
+				...mockCredentials,
+				refreshRequestJson: JSON.stringify({
+					body: {
+						refresh_token: '{{$credentials.refreshToken}}',
+					},
+				}),
+			};
+
+			const newAccessToken = createJwtToken();
+			mockHttpRequest.mockResolvedValueOnce({
+				access_token: newAccessToken,
+				refresh_token: 'new_refresh_token',
+			});
+
+			await credential.preAuthentication.call(mockThis, credentialsWithoutSslOption);
+
+			const call = mockHttpRequest.mock.calls[0][0];
+			expect(call.skipSslCertificateValidation).toBeFalsy();
+		});
+
+		it('should have allowUnauthorizedCerts property with correct configuration', () => {
+			const sslProperty = credential.properties.find(
+				(p: { name: string }) => p.name === 'allowUnauthorizedCerts',
+			);
+			expect(sslProperty).toBeDefined();
+			expect(sslProperty?.type).toBe('boolean');
+			expect(sslProperty?.default).toBe(false);
+		});
+
+		it('should have test request with SSL skip expression', () => {
+			const testRequest = credential.test as any;
+			expect(testRequest.request.skipSslCertificateValidation).toBe(
+				'={{$credentials.allowUnauthorizedCerts}}',
+			);
 		});
 	});
 
