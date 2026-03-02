@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-refresh-token-auth",
-	"version": "1.0.45",
+	"version": "1.0.46",
 	"description": "n8n community node with automatic refresh token support",
 	"keywords": [
 		"n8n-community-node-package",
@@ -48,6 +48,7 @@
 		"!dist/**/*.test.d.ts",
 		"!dist/**/*.test.js.map",
 		"!dist/**/*.tsbuildinfo",
+		"!dist/tests/**",
 		"dist/package.json",
 		"LICENSE",
 		"README.md"

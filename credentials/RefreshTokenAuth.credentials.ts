@@ -296,7 +296,25 @@ export class RefreshTokenAuth implements ICredentialType {
 					value: 'refreshResponse',
 					description: 'Extract expiration from refresh response field',
 				},
+				{
+					name: 'Fixed Duration',
+					value: 'fixedDuration',
+					description: 'Token expires after a fixed number of seconds from the moment it was received',
+				},
 			],
+		},
+		{
+			displayName: 'Token Lifetime (seconds)',
+			name: 'fixedDurationSeconds',
+			type: 'number',
+			default: 600,
+			description: 'How many seconds the token is valid after it was received (e.g., 600 = 10 minutes)',
+			displayOptions: {
+				show: {
+					refreshTokenMode: ['onJwtExpiry'],
+					expiresInSource: ['fixedDuration'],
+				},
+			},
 		},
 		{
 			displayName: 'Expires In Field Name',
@@ -623,8 +641,8 @@ Example:<br />
 				case 'always':
 					return true;
 				case 'onJwtExpiry': {
-					if (expiresInSource === 'refreshResponse') {
-						// Use expires_in from refresh response (stored as Unix timestamp in seconds)
+					if (expiresInSource === 'refreshResponse' || expiresInSource === 'fixedDuration') {
+						// Use stored Unix timestamp (from refresh response or fixed duration)
 						const storedExpiresIn = credentials.expiresInUnixTimestamp as string;
 						if (!storedExpiresIn || storedExpiresIn === '') {
 							return true; // No stored expiration - refresh to be safe
@@ -705,7 +723,7 @@ Example:<br />
 			const newAccessToken = getNestedValue(fullResponse, accessTokenField);
 			if (!newAccessToken) throw new Error('Access token not found in response');
 
-			// Extract and convert expires_in if configured to use refresh response
+			// Extract and convert expires_in if configured
 			const expiresInSource = (credentials.expiresInSource as string) || 'jwt';
 			let expiresInUnixTimestamp: string | undefined;
 			if (refreshTokenMode === 'onJwtExpiry' && expiresInSource === 'refreshResponse') {
@@ -717,6 +735,10 @@ Example:<br />
 					// Store as Unix timestamp string (seconds)
 					expiresInUnixTimestamp = expiresInTimestamp.toString();
 				}
+			} else if (refreshTokenMode === 'onJwtExpiry' && expiresInSource === 'fixedDuration') {
+				const fixedDurationSeconds = (credentials.fixedDurationSeconds as number) || 600;
+				const nowSeconds = Math.floor(Date.now() / 1000);
+				expiresInUnixTimestamp = (nowSeconds + fixedDurationSeconds).toString();
 			}
 
 			// Extract Set-Cookie header if cookie extraction is enabled

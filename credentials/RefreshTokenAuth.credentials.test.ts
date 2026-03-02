@@ -54,7 +54,7 @@ describe('RefreshTokenAuth', () => {
 		});
 
 		it('should have all required properties', () => {
-			expect(credential.properties).toHaveLength(21);
+			expect(credential.properties).toHaveLength(22);
 			const propertyNames = credential.properties.map((p: { name: string }) => p.name);
 			expect(propertyNames).toContain('accessToken');
 			expect(propertyNames).toContain('refreshToken');
@@ -70,6 +70,7 @@ describe('RefreshTokenAuth', () => {
 			expect(propertyNames).toContain('refreshTokenMode');
 			expect(propertyNames).toContain('jwtExpiryLeewaySeconds');
 			expect(propertyNames).toContain('expiresInSource');
+			expect(propertyNames).toContain('fixedDurationSeconds');
 			expect(propertyNames).toContain('expiresInFieldName');
 			expect(propertyNames).toContain('expiresInFormat');
 			expect(propertyNames).toContain('allowUnauthorizedCerts');
@@ -891,6 +892,222 @@ describe('RefreshTokenAuth', () => {
 
 				expect(result).toHaveProperty('accessToken', newAccessToken);
 				expect(mockHttpRequest).toHaveBeenCalled();
+			});
+		});
+
+		describe('Fixed Duration Source', () => {
+			it('should refresh when no stored expiration (first request)', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'fixedDuration',
+					fixedDurationSeconds: 600,
+					jwtExpiryLeewaySeconds: 60,
+					expiresInUnixTimestamp: '', // No stored expiration
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(result).toHaveProperty('expiresInUnixTimestamp');
+				const storedTimestamp = parseInt(result.expiresInUnixTimestamp as string, 10);
+				const nowSeconds = Math.floor(Date.now() / 1000);
+				// Should be now + 600 seconds (with some tolerance)
+				expect(storedTimestamp).toBeGreaterThan(nowSeconds + 590);
+				expect(storedTimestamp).toBeLessThan(nowSeconds + 610);
+				expect(mockHttpRequest).toHaveBeenCalled();
+			});
+
+			it('should not refresh when stored expiration is in the future', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				const futureTimestamp = (Math.floor(Date.now() / 1000) + 600).toString();
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'fixedDuration',
+					fixedDurationSeconds: 600,
+					jwtExpiryLeewaySeconds: 60,
+					expiresInUnixTimestamp: futureTimestamp, // Valid stored expiration
+				};
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toEqual({});
+				expect(mockHttpRequest).not.toHaveBeenCalled();
+			});
+
+			it('should refresh when stored expiration is in the past', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				const pastTimestamp = (Math.floor(Date.now() / 1000) - 100).toString();
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'fixedDuration',
+					fixedDurationSeconds: 600,
+					jwtExpiryLeewaySeconds: 60,
+					expiresInUnixTimestamp: pastTimestamp, // Expired
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(result).toHaveProperty('expiresInUnixTimestamp');
+				const storedTimestamp = parseInt(result.expiresInUnixTimestamp as string, 10);
+				const nowSeconds = Math.floor(Date.now() / 1000);
+				expect(storedTimestamp).toBeGreaterThan(nowSeconds + 590);
+				expect(storedTimestamp).toBeLessThan(nowSeconds + 610);
+				expect(mockHttpRequest).toHaveBeenCalled();
+			});
+
+			it('should refresh when stored expiration is within leeway period', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				// 30 seconds from now, leeway is 60 — should trigger refresh
+				const withinLeewayTimestamp = (Math.floor(Date.now() / 1000) + 30).toString();
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'fixedDuration',
+					fixedDurationSeconds: 600,
+					jwtExpiryLeewaySeconds: 60,
+					expiresInUnixTimestamp: withinLeewayTimestamp, // Within leeway
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('accessToken', newAccessToken);
+				expect(mockHttpRequest).toHaveBeenCalled();
+			});
+
+			it('should use default 600 seconds when fixedDurationSeconds is not set', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'fixedDuration',
+					// fixedDurationSeconds not set — should default to 600
+					jwtExpiryLeewaySeconds: 60,
+					expiresInUnixTimestamp: '', // Force refresh
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('expiresInUnixTimestamp');
+				const storedTimestamp = parseInt(result.expiresInUnixTimestamp as string, 10);
+				const nowSeconds = Math.floor(Date.now() / 1000);
+				expect(storedTimestamp).toBeGreaterThan(nowSeconds + 590);
+				expect(storedTimestamp).toBeLessThan(nowSeconds + 610);
+			});
+
+			it('should use custom fixedDurationSeconds value', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'fixedDuration',
+					fixedDurationSeconds: 300, // 5 minutes
+					jwtExpiryLeewaySeconds: 60,
+					expiresInUnixTimestamp: '', // Force refresh
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				expect(result).toHaveProperty('expiresInUnixTimestamp');
+				const storedTimestamp = parseInt(result.expiresInUnixTimestamp as string, 10);
+				const nowSeconds = Math.floor(Date.now() / 1000);
+				// Should be now + 300 seconds
+				expect(storedTimestamp).toBeGreaterThan(nowSeconds + 290);
+				expect(storedTimestamp).toBeLessThan(nowSeconds + 310);
+			});
+
+			it('should not include expires_in from response (ignores response field)', async () => {
+				const validToken = createJwtToken({ exp: futureTime });
+				const credentials: ICredentialDataDecryptedObject = {
+					accessToken: validToken,
+					refreshToken: 'refresh_token',
+					refreshUrl: 'https://api.example.com/auth/refresh',
+					testUrl: 'https://api.example.com/user/profile',
+					refreshTokenMode: 'onJwtExpiry',
+					expiresInSource: 'fixedDuration',
+					fixedDurationSeconds: 600,
+					jwtExpiryLeewaySeconds: 60,
+					expiresInUnixTimestamp: '', // Force refresh
+					accessTokenFieldName: 'access_token',
+					refreshTokenFieldName: 'refresh_token',
+				};
+
+				const newAccessToken = createJwtToken({ exp: futureTime });
+				mockHttpRequest.mockResolvedValueOnce({
+					access_token: newAccessToken,
+					refresh_token: 'new_refresh_token',
+					expires_in: 9999, // This should be ignored for fixedDuration
+				});
+
+				const result = await credential.preAuthentication.call(mockThis, credentials);
+
+				const storedTimestamp = parseInt(result.expiresInUnixTimestamp as string, 10);
+				const nowSeconds = Math.floor(Date.now() / 1000);
+				// Should use fixed 600 seconds, NOT 9999 from response
+				expect(storedTimestamp).toBeGreaterThan(nowSeconds + 590);
+				expect(storedTimestamp).toBeLessThan(nowSeconds + 610);
 			});
 		});
 
