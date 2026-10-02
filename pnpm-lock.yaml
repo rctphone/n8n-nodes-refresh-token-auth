@@ -7,17 +7,10 @@ settings:
 importers:
 
   .:
-    dependencies:
-      jsonwebtoken:
-        specifier: ^9.0.2
-        version: 9.0.2
     devDependencies:
       '@types/jest':
         specifier: ^29.5.14
         version: 29.5.14
-      '@types/jsonwebtoken':
-        specifier: ^9.0.7
-        version: 9.0.10
       '@types/node':
         specifier: ^22.18.12
         version: 22.18.12
@@ -2697,9 +2690,6 @@ packages:
 
   '@types/json-schema@7.0.15':
     resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
-
-  '@types/jsonwebtoken@9.0.10':
-    resolution: {integrity: sha512-asx5hIG9Qmf/1oStypjanR7iKTv0gXQ1Ov/jfrX6kS/EO0OFni8orbmGCn0672NHR3kXHwpAwR+B368ZGN/2rA==}
 
   '@types/lodash@4.17.21':
     resolution: {integrity: sha512-FOvQ0YPD5NOfPgMzJihoT+Za5pdkDJWcbpuj1DjaKZIr/gxodQjY/uWEFlTNqW2ugXHUiL8lRQgw63dzKHZdeQ==}
@@ -9562,7 +9552,7 @@ snapshots:
       openai: 6.18.0(ws@8.17.1)(zod@3.25.67)
       ws: 8.18.3
       zod: 3.25.67
-      zod-to-json-schema: 3.24.6(zod@3.25.67)
+      zod-to-json-schema: 3.25.1(zod@3.25.67)
     transitivePeerDependencies:
       - bufferutil
       - encoding
@@ -12150,11 +12140,6 @@ snapshots:
 
   '@types/json-schema@7.0.15': {}
 
-  '@types/jsonwebtoken@9.0.10':
-    dependencies:
-      '@types/ms': 2.1.0
-      '@types/node': 22.18.12
-
   '@types/lodash@4.17.21': {}
 
   '@types/long@4.0.2': {}
@@ -14679,7 +14664,7 @@ snapshots:
       file-type: 16.5.4
       form-data: 4.0.4
       isstream: 0.1.2
-      jsonwebtoken: 9.0.2
+      jsonwebtoken: 9.0.3
       mime-types: 2.1.35
       retry-axios: 2.6.0(axios@1.13.2(debug@4.4.3))
       tough-cookie: 4.1.4

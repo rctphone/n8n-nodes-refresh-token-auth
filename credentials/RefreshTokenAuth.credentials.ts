@@ -11,8 +11,6 @@ import {
 	IAuthenticateGeneric,
 } from 'n8n-workflow';
 
-import jwt from 'jsonwebtoken';
-
 /**
  * Get nested value from object using dot notation (e.g., "data.token")
  * Also searches in common wrapper paths (body., data., response.) if direct path not found
@@ -48,9 +46,13 @@ function getNestedValue(obj: any, path: string): any {
 /** Replace {{$credentials.accessToken}} and {{$credentials.refreshToken}} placeholders */
 function replacePlaceholders(value: any, credentials: ICredentialDataDecryptedObject): any {
 	if (typeof value !== 'string') return value;
+	// Function replacers: a string replacement would expand `$&`, `$'` etc. inside the token
 	return value
-		.replace(/\{\{\$credentials\.accessToken\}\}/g, (credentials.accessToken as string) || '')
-		.replace(/\{\{\$credentials\.refreshToken\}\}/g, (credentials.refreshToken as string) || '');
+		.replace(/\{\{\$credentials\.accessToken\}\}/g, () => (credentials.accessToken as string) || '')
+		.replace(
+			/\{\{\$credentials\.refreshToken\}\}/g,
+			() => (credentials.refreshToken as string) || '',
+		);
 }
 
 /** Recursively replace credential placeholders in an object */
@@ -80,9 +82,10 @@ function mergeObjectFields(
 	}
 }
 
-/** Safely parse JSON template and merge into request options */
+/** Safely parse JSON template, fill credential placeholders and merge into request options */
 function applyJsonTemplate(
 	requestOptions: IHttpRequestOptions,
+	credentials: ICredentialDataDecryptedObject,
 	jsonString: string | undefined,
 	errorMessage: string,
 	fields: readonly string[],
@@ -90,7 +93,10 @@ function applyJsonTemplate(
 ): void {
 	if (!jsonString) return;
 	try {
-		const template = jsonParse<IDataObject>(jsonString, { errorMessage });
+		const template = replacePlaceholdersInObject(
+			jsonParse<IDataObject>(jsonString, { errorMessage }),
+			credentials,
+		) as IDataObject;
 		mergeObjectFields(requestOptions, template, fields, sourceOverrides);
 	} catch {
 		// Ignore parse errors
@@ -100,25 +106,37 @@ function applyJsonTemplate(
 /**
  * Try to parse JWT and return payload as IDataObject.
  * Returns null if token is not a valid JWT (non-JWT tokens are allowed).
- * Uses jsonwebtoken library to decode JWT structure.
+ * Decodes without verification: only the exp claim is read.
  */
 function tryParseJwtPayload(token: unknown): IDataObject | null {
-	if (typeof token !== 'string' || token.trim() === '') {
-		return null;
-	}
-
+	if (typeof token !== 'string') return null;
+	const parts = token.trim().split('.');
+	if (parts.length !== 3) return null;
 	try {
-		// Decode JWT without verification (we only need to read exp claim)
-		const decoded = jwt.decode(token, { complete: true });
-
-		if (!decoded || typeof decoded === 'string' || !decoded.payload) {
-			return null; // Not a valid JWT, but that's okay
-		}
-
-		return decoded.payload as IDataObject;
+		const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+		return payload && typeof payload === 'object' && !Array.isArray(payload)
+			? (payload as IDataObject)
+			: null;
 	} catch {
 		return null; // Not a JWT token
 	}
+}
+
+/**
+ * Marks a credentials object that preAuthentication has already seen. n8n only calls
+ * preAuthentication again with the same object when it retries a failed request (after a 401
+ * in httpRequestWithAuthentication, after any error in the legacy requestWithAuthentication),
+ * and it does not pass that "expired" flag to the credential type.
+ */
+const PRE_AUTH_SEEN = Symbol('refreshTokenAuth.preAuthSeen');
+
+/** Mask the credential's token values in text that ends up in execution logs */
+function redactSecrets(text: string, credentials: ICredentialDataDecryptedObject): string {
+	let result = text;
+	for (const secret of [credentials.accessToken, credentials.refreshToken]) {
+		if (typeof secret === 'string' && secret) result = result.split(secret).join('[MASKED]');
+	}
+	return result;
 }
 
 /**
@@ -299,7 +317,8 @@ export class RefreshTokenAuth implements ICredentialType {
 				{
 					name: 'Fixed Duration',
 					value: 'fixedDuration',
-					description: 'Token expires after a fixed number of seconds from the moment it was received',
+					description:
+						'Token expires after a fixed number of seconds from the moment it was received',
 				},
 			],
 		},
@@ -308,7 +327,8 @@ export class RefreshTokenAuth implements ICredentialType {
 			name: 'fixedDurationSeconds',
 			type: 'number',
 			default: 600,
-			description: 'How many seconds the token is valid after it was received (e.g., 600 = 10 minutes)',
+			description:
+				'How many seconds the token is valid after it was received (e.g., 600 = 10 minutes)',
 			displayOptions: {
 				show: {
 					refreshTokenMode: ['onJwtExpiry'],
@@ -565,6 +585,7 @@ Example:<br />
 		// 1) Apply common template first (base headers and query params)
 		applyJsonTemplate(
 			requestOptions,
+			credentials,
 			credentials.commonRequestTemplate as string,
 			'Invalid Common Request Template JSON',
 			['headers', 'qs'],
@@ -579,7 +600,17 @@ Example:<br />
 			Authorization: `${prefix}${separator}${credentials.accessToken}`,
 		};
 
-		// 3) Add stored cookies from refresh response if available and extraction is enabled
+		// 3) Fill credential placeholders in the request's own URL and query, for APIs that take
+		// the token as a query parameter (e.g. https://host/?token={{$credentials.accessToken}})
+		requestOptions.url = replacePlaceholders(requestOptions.url, credentials);
+		if (requestOptions.qs) {
+			requestOptions.qs = replacePlaceholdersInObject(
+				requestOptions.qs,
+				credentials,
+			) as IDataObject;
+		}
+
+		// 4) Add stored cookies from refresh response if available and extraction is enabled
 		const extractCookies = credentials.extractCookies === true;
 		const storedCookies = credentials.storedCookies as string;
 		if (extractCookies && storedCookies) {
@@ -592,7 +623,7 @@ Example:<br />
 			};
 		}
 
-		// 4) Apply SSL certificate validation skip if configured
+		// 5) Apply SSL certificate validation skip if configured
 		// Note: n8n checks skipSslCertificateValidation === true (strict equality)
 		const allowUnauthorizedCerts =
 			credentials.allowUnauthorizedCerts === true || credentials.allowUnauthorizedCerts === 'true';
@@ -627,6 +658,10 @@ Example:<br />
 		// Enable dynamic authenticate function
 		RefreshTokenAuth.enableAuthenticateFunc();
 
+		// A second call with the same object means the request failed with 401 and n8n retries
+		const isRetryAfterUnauthorized = (credentials as any)[PRE_AUTH_SEEN] === true;
+		Object.defineProperty(credentials, PRE_AUTH_SEEN, { value: true, configurable: true });
+
 		const accessToken = credentials.accessToken as string;
 		const refreshTokenMode = (credentials.refreshTokenMode as string) || 'onJwtExpiry';
 		const jwtExpiryLeewaySeconds = (credentials.jwtExpiryLeewaySeconds as number) || 60;
@@ -634,6 +669,7 @@ Example:<br />
 
 		// Determine if refresh is needed based on mode
 		const shouldRefresh = (() => {
+			if (isRetryAfterUnauthorized) return refreshTokenMode !== 'never';
 			switch (refreshTokenMode) {
 				case 'never':
 				case 'onTestEndpoint401':
@@ -684,6 +720,7 @@ Example:<br />
 		// 1) Apply common request template
 		applyJsonTemplate(
 			requestOptions,
+			credentials,
 			credentials.commonRequestTemplate as string,
 			'Invalid Common Request Template JSON',
 			['headers', 'qs'],
@@ -783,16 +820,6 @@ Example:<br />
 			const url = error.request?._redirectable?._currentUrl || axiosConfig?.url;
 			errorLines.push(`Request: ${method} ${url}`);
 
-			// Add request headers from Axios config (mask sensitive data)
-			const configHeaders = axiosConfig?.headers;
-			if (configHeaders) {
-				const headers = { ...configHeaders };
-				// Mask sensitive headers
-				if (headers.Authorization) headers.Authorization = '[MASKED]';
-				if (headers.authorization) headers.authorization = '[MASKED]';
-				errorLines.push(`Request headers: ${JSON.stringify(headers)}`);
-			}
-
 			// Add response info if available
 			if (error.response) {
 				const status = error.response.status || error.response.statusCode;
@@ -802,8 +829,11 @@ Example:<br />
 				// Add response body (truncated if too long)
 				const responseBody = error.response.body || error.response.data;
 				if (responseBody) {
-					const bodyStr =
-						typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody);
+					// Redact before truncating, or a cut-off token would no longer match
+					const bodyStr = redactSecrets(
+						typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody),
+						credentials,
+					);
 					const truncatedBody = bodyStr.length > 500 ? bodyStr.substring(0, 500) + '...' : bodyStr;
 					errorLines.push(`Response body: ${truncatedBody}`);
 				}

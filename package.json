@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-refresh-token-auth",
-	"version": "1.0.46",
+	"version": "1.0.47",
 	"description": "n8n community node with automatic refresh token support",
 	"keywords": [
 		"n8n-community-node-package",
@@ -63,12 +63,8 @@
 			"dist/nodes/HttpRequestWithRefreshToken/HttpRequestWithRefreshToken.node.js"
 		]
 	},
-	"dependencies": {
-		"jsonwebtoken": "^9.0.2"
-	},
 	"devDependencies": {
 		"@types/jest": "^29.5.14",
-		"@types/jsonwebtoken": "^9.0.7",
 		"@types/node": "^22.18.12",
 		"@typescript-eslint/parser": "~8.46.2",
 		"axios": "^1.13.2",
@@ -87,5 +83,10 @@
 	},
 	"peerDependencies": {
 		"n8n-workflow": "*"
+	},
+	"peerDependenciesMeta": {
+		"n8n-workflow": {
+			"optional": true
+		}
 	}
 }

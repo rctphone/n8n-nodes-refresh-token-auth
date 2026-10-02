@@ -2028,4 +2028,99 @@ describe('RefreshTokenAuth', () => {
 			expect(result.headers!.Authorization).toBe('Tokentest-token-123');
 		});
 	});
+
+	describe('Refresh reliability', () => {
+		const base: ICredentialDataDecryptedObject = {
+			accessToken: createJwtToken(),
+			refreshToken: 'rt_old_1234567890',
+			refreshUrl: 'https://api.example.com/auth/refresh',
+			testUrl: 'https://api.example.com/user/profile',
+			accessTokenFieldName: 'access_token',
+			refreshTokenFieldName: 'refresh_token',
+			refreshRequestJson: JSON.stringify({
+				body: { refresh_token: '{{$credentials.refreshToken}}' },
+			}),
+		};
+
+		it('refreshes on the 401 retry call even in "On 401 Error" mode', async () => {
+			const credentials = { ...base, refreshTokenMode: 'onTestEndpoint401' };
+			const newToken = createJwtToken();
+			mockHttpRequest.mockResolvedValueOnce({ access_token: newToken });
+
+			// First call before the request: nothing to do
+			expect(await credential.preAuthentication.call(mockThis, credentials)).toEqual({});
+			expect(mockHttpRequest).not.toHaveBeenCalled();
+
+			// n8n calls again with the same object after a 401
+			const result = await credential.preAuthentication.call(mockThis, credentials);
+			expect(mockHttpRequest).toHaveBeenCalledTimes(1);
+			expect(result.accessToken).toBe(newToken);
+		});
+
+		it('refreshes on the 401 retry call even when the JWT is not expired yet', async () => {
+			const credentials = { ...base, refreshTokenMode: 'onJwtExpiry' };
+			mockHttpRequest.mockResolvedValueOnce({ access_token: 'fresh' });
+
+			expect(await credential.preAuthentication.call(mockThis, credentials)).toEqual({});
+			const result = await credential.preAuthentication.call(mockThis, credentials);
+			expect(result.accessToken).toBe('fresh');
+		});
+
+		it('never refreshes on retry in "Never" mode', async () => {
+			const credentials = { ...base, refreshTokenMode: 'never' };
+			await credential.preAuthentication.call(mockThis, credentials);
+			expect(await credential.preAuthentication.call(mockThis, credentials)).toEqual({});
+			expect(mockHttpRequest).not.toHaveBeenCalled();
+		});
+
+		it('inserts tokens containing $ patterns verbatim', async () => {
+			const credentials = { ...base, refreshTokenMode: 'always', refreshToken: "tok$&en$'1234" };
+			mockHttpRequest.mockResolvedValueOnce({ access_token: 'x' });
+
+			await credential.preAuthentication.call(mockThis, credentials);
+			expect(mockHttpRequest.mock.calls[0][0].body.refresh_token).toBe("tok$&en$'1234");
+		});
+
+		it('keeps token values out of refresh errors and drops request headers', async () => {
+			const credentials = { ...base, refreshTokenMode: 'always' };
+			const error: any = new Error('Request failed with status code 400');
+			error.config = { method: 'post', url: base.refreshUrl, headers: { Cookie: 'sid=abc' } };
+			error.response = { status: 400, data: { echoed: 'rt_old_1234567890' } };
+			mockHttpRequest.mockRejectedValueOnce(error);
+
+			const message = await credential.preAuthentication
+				.call(mockThis, credentials)
+				.catch((e: Error) => e.message);
+			expect(message).not.toContain('sid=abc');
+			expect(message).not.toContain('rt_old_1234567890');
+			expect(message).toContain('Response: 400');
+		});
+
+		it('fills placeholders in the common template of the refresh request', async () => {
+			const credentials = {
+				...base,
+				refreshTokenMode: 'always',
+				commonRequestTemplate: JSON.stringify({
+					headers: { 'X-Refresh': '{{$credentials.refreshToken}}' },
+				}),
+			};
+			mockHttpRequest.mockResolvedValueOnce({ access_token: 'x' });
+
+			await credential.preAuthentication.call(mockThis, credentials);
+			expect(mockHttpRequest.mock.calls[0][0].headers['X-Refresh']).toBe('rt_old_1234567890');
+		});
+
+		it('fills the access token into the request URL and query', async () => {
+			const authenticate = credential.authenticate as unknown as (
+				c: ICredentialDataDecryptedObject,
+				r: IHttpRequestOptions,
+			) => Promise<IHttpRequestOptions>;
+			const result = await authenticate({ ...base, accessToken: 'at-123' }, {
+				url: 'https://my.example.com/?token={{$credentials.accessToken}}',
+				qs: { t: '{{$credentials.accessToken}}' },
+			} as IHttpRequestOptions);
+			expect(result.url).toBe('https://my.example.com/?token=at-123');
+			expect(result.qs).toEqual({ t: 'at-123' });
+		});
+	});
 });

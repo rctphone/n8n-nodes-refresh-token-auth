@@ -402,6 +402,7 @@ These placeholders can be used in:
 
 - **Refresh Request Configuration** - In headers, body, or query string parameters
 - **Common Request Template** - In headers or query string parameters
+- **The URL and query parameters of any request made with this credential** - For APIs that take the token as a query parameter, e.g. `https://api.example.com/?token={{$credentials.accessToken}}` (keep the URL field in Fixed mode)
 
 **Example Usage:**
 
@@ -531,6 +532,24 @@ Refresh Request Configuration:
 - Ensure field names match your API's response format
 - Verify the Refresh Request Configuration JSON is valid
 - Check if your API requires specific headers or body parameters in the refresh request
+
+#### Refresh Token Sent Blank or Stale
+
+**Problem**: The refresh request fails although the stored refresh token is valid
+
+**Solution**:
+
+- Put `{{$credentials.refreshToken}}` where the token goes instead of pasting the token itself. A pasted token is never updated when the API returns a new one
+- Keep the field in **Fixed** mode. The n8n editor switches a field to Expression mode when you type `{{ }}` into it, and an expression is resolved by n8n before the node can fill the placeholder
+
+#### New Refresh Token Not Saved
+
+**Problem**: The API returns a new refresh token, but the next run uses the old one
+
+**Solution**:
+
+- Keep the **Refresh Token** and **Access Token** fields in Fixed mode: n8n does not persist refreshed values into fields that hold an expression
+- APIs that issue a new refresh token on every refresh can fail when two runs refresh at the same moment: both send the same old token, and the API accepts only the first
 
 #### 401 Errors Persisting
 
